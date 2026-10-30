@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import { DISTRICT_LOGO, isValidWvusdEmail } from '../config.js';
+import { saveUserSession } from '../utils/authStorage.js';
 import { 
   ShieldCheck, 
   Sparkles, 
@@ -28,6 +29,9 @@ export default function LoginView({ onLoginSuccess, onDemoLogin, isLoading, auth
       }
 
       setLocalError(null);
+      // Persist raw credential and initial user session
+      saveUserSession({ email, name: decoded.name, authorized: true }, credentialResponse.credential);
+
       onLoginSuccess(email, decoded.name);
     } catch {
       setLocalError('Failed to decode Google Sign-In credential. Please try again.');

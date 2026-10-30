@@ -1,7 +1,14 @@
 // src/App.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { GOOGLE_CLIENT_ID, APPS_SCRIPT_URL, isBubbleStudent } from './config.js';
+import { GOOGLE_CLIENT_ID, APPS_SCRIPT_URL, DISTRICT_LOGO, isBubbleStudent } from './config.js';
+import {
+  saveUserSession,
+  saveCachedStudents,
+  getCachedStudents,
+  clearUserSession,
+  getStoredSession
+} from './utils/authStorage.js';
 import HeaderBar from './components/HeaderBar.jsx';
 import ControlBar from './components/ControlBar.jsx';
 import ExecutiveOverview from './components/ExecutiveOverview.jsx';
@@ -53,25 +60,10 @@ class ViewErrorBoundary extends React.Component {
 }
 
 export default function App() {
-  // Session & Authentication
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem('wvusd_sbac_user');
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
-
-  const [students, setStudents] = useState(() => {
-    try {
-      const saved = localStorage.getItem('wvusd_sbac_students');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
+  // Guard initial auth state resolution (prevents "all zeros" bug on direct-link bookmarks)
+  const [isAuthResolving, setIsAuthResolving] = useState(true);
+  const [user, setUser] = useState(null);
+  const [students, setStudents] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState(null);
 
@@ -87,9 +79,112 @@ export default function App() {
   const [activeModalStudent, setActiveModalStudent] = useState(null);
   const [levelQuickFilter, setLevelQuickFilter] = useState(null);
 
+  // Helper to parse and apply bookmark URL query parameters
+  const applyUrlBookmarkParams = useCallback((studentList = []) => {
+    if (typeof window === 'undefined' || !window.location.search) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const siteParam = params.get('site');
+      const gradeParam = params.get('grade');
+      const staffParam = params.get('staff');
+      const bandParam = params.get('band') || params.get('gradeBand');
+      const viewParam = params.get('view');
+      const flagParam = params.get('flag');
+
+      if (siteParam && siteParam !== 'ALL') {
+        setSelectedSite(siteParam);
+      }
+      if (bandParam && ['Elementary', 'Middle', 'High'].includes(bandParam)) {
+        setGradeBand(bandParam);
+      }
+      if (gradeParam && gradeParam !== 'ALL') {
+        setSelectedGrade(gradeParam);
+      }
+      if (staffParam && staffParam !== 'ALL') {
+        setSelectedStaff(staffParam);
+        const cleanTarget = staffParam.toLowerCase().trim();
+        const matched = (Array.isArray(studentList) ? studentList : []).find(s => {
+          if (!s) return false;
+          const sName = (s.staffName || '').toLowerCase().trim();
+          const sEmail = (s.staffEmail || '').toLowerCase().trim();
+          return sName === cleanTarget || sEmail === cleanTarget || sName.includes(cleanTarget);
+        });
+        if (matched) {
+          setActiveStaffFilter({
+            staffName: matched.staffName,
+            staffEmail: matched.staffEmail,
+            school: matched.school,
+            grade: matched.grade,
+            gradeBand: matched.gradeBand
+          });
+        }
+      }
+      if (viewParam && (viewParam === 'overview' || viewParam === 'roster')) {
+        setActiveView(viewParam);
+      }
+      if (flagParam && ['SPED', 'EL', '504', 'BUBBLE'].includes(flagParam)) {
+        setActiveFlagFilter(flagParam);
+      }
+    } catch (e) {
+      console.warn('Error applying URL bookmark params:', e);
+    }
+  }, []);
+
+  // Helper to determine the appropriate initial grade band, site, and teacher roster from the user
+  const autoConfigureUserContext = useCallback((currentUser, studentList = []) => {
+    if (!currentUser) return;
+
+    if (currentUser.school && currentUser.school !== 'ALL') {
+      setSelectedSite(currentUser.school);
+      const schoolStudents = studentList.filter(s => s && s.school === currentUser.school);
+      const bands = [...new Set(schoolStudents.map(s => s?.gradeBand).filter(Boolean))];
+      if (bands.length > 0) {
+        setGradeBand(bands[0]);
+      }
+    } else {
+      setSelectedSite('ALL');
+    }
+
+    if (currentUser.role === 'ElementaryTeacher' || currentUser.role === 'SecondaryTeacher') {
+      const userEmail = (currentUser.email || '').toLowerCase().trim();
+      const userName = (currentUser.name || '').toLowerCase().trim();
+
+      const matched = (studentList || []).find(s => {
+        if (!s) return false;
+        const sEmail = (s.staffEmail || '').toLowerCase().trim();
+        const sName = (s.staffName || '').toLowerCase().trim();
+        return (userEmail && sEmail && userEmail === sEmail) ||
+               (userName && sName && (sName === userName || userName.includes(sName) || sName.includes(userName)));
+      });
+
+      if (matched) {
+        setActiveStaffFilter({
+          staffName: matched.staffName,
+          staffEmail: matched.staffEmail || userEmail,
+          school: matched.school || currentUser.school,
+          grade: matched.grade,
+          gradeBand: matched.gradeBand || (currentUser.role === 'ElementaryTeacher' ? 'Elementary' : 'High')
+        });
+        setSelectedStaff(matched.staffName);
+        if (matched.gradeBand) setGradeBand(matched.gradeBand);
+        if (matched.school) setSelectedSite(matched.school);
+      }
+      setActiveView('roster');
+    } else if (currentUser.role === 'Counselor') {
+      const bands = [...new Set((studentList || []).map(s => s?.gradeBand).filter(Boolean))];
+      if (bands.includes('High')) setGradeBand('High');
+      else if (bands.includes('Middle')) setGradeBand('Middle');
+      setActiveView('overview');
+    } else {
+      setActiveView('overview');
+    }
+  }, []);
+
   // Fetch payload from Apps Script Web App
-  const fetchDashboardData = async (userEmail, fallbackName = '') => {
-    setIsLoading(true);
+  const fetchDashboardData = useCallback(async (userEmail, fallbackName = '', isSilent = false) => {
+    if (!isSilent) {
+      setIsLoading(true);
+    }
     setAuthError(null);
 
     try {
@@ -112,82 +207,155 @@ export default function App() {
         name: data.user.name || fallbackName || userEmail.split('@')[0]
       };
 
-      setUser(verifiedUser);
-      setStudents(data.students || []);
+      const fetchedStudents = Array.isArray(data.students) ? data.students : [];
 
-      // Cache locally for offline resiliency and fast subsequent page loads
-      localStorage.setItem('wvusd_sbac_user', JSON.stringify(verifiedUser));
-      try {
-        localStorage.setItem('wvusd_sbac_students', JSON.stringify(data.students || []));
-      } catch {
-        console.warn('LocalStorage quota exceeded for full student dataset');
-      }
+      setUser(verifiedUser);
+      setStudents(fetchedStudents);
+
+      // Persist session across storage & cookies
+      saveUserSession(verifiedUser);
+      saveCachedStudents(fetchedStudents);
 
       // Auto-configure initial view based on user role and school
-      autoConfigureUserContext(verifiedUser, data.students || []);
+      autoConfigureUserContext(verifiedUser, fetchedStudents);
+
+      // Apply URL bookmark parameters if any
+      applyUrlBookmarkParams(fetchedStudents);
+
+      return { user: verifiedUser, students: fetchedStudents };
 
     } catch (err) {
       console.error('Data fetch error:', err);
+      if (err.message && err.message.toLowerCase().includes('not authorized')) {
+        clearUserSession();
+        setUser(null);
+        setStudents([]);
+      }
       setAuthError(err.message || 'Unable to load dashboard data. Please try again.');
+      throw err;
     } finally {
       setIsLoading(false);
+      setIsAuthResolving(false);
     }
-  };
+  }, [autoConfigureUserContext, applyUrlBookmarkParams]);
 
-  // Helper to determine the appropriate initial grade band and site from the user
-  const autoConfigureUserContext = (currentUser, studentList) => {
-    if (!currentUser) return;
+  // Direct load & mount: restore Google session or user token from localStorage, sessionStorage, or cookie
+  useEffect(() => {
+    let isMounted = true;
 
-    if (currentUser.school && currentUser.school !== 'ALL') {
-      setSelectedSite(currentUser.school);
-      const schoolStudents = studentList.filter(s => s.school === currentUser.school);
-      const bands = [...new Set(schoolStudents.map(s => s.gradeBand).filter(Boolean))];
-      if (bands.length > 0) {
-        setGradeBand(bands[0]);
+    const restoreSessionOnMount = async () => {
+      setIsAuthResolving(true);
+      try {
+        const stored = getStoredSession();
+
+        if (!stored || !stored.email) {
+          // No stored credential or session found
+          if (isMounted) {
+            setIsAuthResolving(false);
+          }
+          return;
+        }
+
+        // Check for cached students from previous session
+        const cached = getCachedStudents();
+
+        if (cached && cached.length > 0 && stored.user) {
+          // Instant restoration from cache for fast direct bookmark access
+          if (isMounted) {
+            setUser(stored.user);
+            setStudents(cached);
+            autoConfigureUserContext(stored.user, cached);
+            applyUrlBookmarkParams(cached);
+            setIsAuthResolving(false);
+          }
+
+          // Background sync to ensure fresh assessment scores
+          try {
+            await fetchDashboardData(stored.email, stored.name, true);
+          } catch (syncErr) {
+            console.warn('Background sync using cached data:', syncErr);
+          }
+        } else {
+          // No cached students in storage (or direct link accessing uncached state):
+          // Guard rendering and fetch full data with loading spinner before rendering cards
+          if (isMounted) {
+            setIsLoading(true);
+          }
+          await fetchDashboardData(stored.email, stored.name, false);
+        }
+      } catch (err) {
+        console.error('Session restoration error:', err);
+        if (isMounted) {
+          setIsAuthResolving(false);
+          setIsLoading(false);
+        }
       }
-    } else {
-      setSelectedSite('ALL');
-      if (currentUser.role === 'ElementaryTeacher') {
-        setGradeBand('Elementary');
-        setActiveView('roster');
-      } else if (currentUser.role === 'Counselor') {
-        const bands = [...new Set(studentList.map(s => s.gradeBand).filter(Boolean))];
-        if (bands.includes('High')) setGradeBand('High');
-        else if (bands.includes('Middle')) setGradeBand('Middle');
-      }
+    };
+
+    restoreSessionOnMount();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [autoConfigureUserContext, applyUrlBookmarkParams, fetchDashboardData]);
+
+  // Synchronize active filters to URL query string for bookmarks
+  useEffect(() => {
+    if (typeof window === 'undefined' || isAuthResolving || !user) return;
+    try {
+      const params = new URLSearchParams();
+      if (selectedSite && selectedSite !== 'ALL') params.set('site', selectedSite);
+      if (gradeBand) params.set('band', gradeBand);
+      if (selectedGrade && selectedGrade !== 'ALL') params.set('grade', selectedGrade);
+      if (selectedStaff && selectedStaff !== 'ALL') params.set('staff', selectedStaff);
+      if (activeView && activeView !== 'overview') params.set('view', activeView);
+      if (activeFlagFilter) params.set('flag', activeFlagFilter);
+
+      const qs = params.toString();
+      const newUrl = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`;
+      window.history.replaceState(null, '', newUrl);
+    } catch {
+      // ignore
     }
-  };
+  }, [user, isAuthResolving, selectedSite, gradeBand, selectedGrade, selectedStaff, activeView, activeFlagFilter]);
 
   // Handle Logout
   const handleLogout = () => {
     setUser(null);
     setStudents([]);
-    localStorage.removeItem('wvusd_sbac_user');
-    localStorage.removeItem('wvusd_sbac_students');
+    setSelectedSite('ALL');
+    setSelectedGrade('ALL');
+    setSelectedStaff('ALL');
+    setActiveStaffFilter(null);
+    setActiveFlagFilter(null);
+    clearUserSession();
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', window.location.pathname);
+    }
   };
 
   // Fast Demo Switcher for Evaluation and Presentation
   const handleDemoLogin = (demoEmail, demoName) => {
-    fetchDashboardData(demoEmail, demoName);
+    fetchDashboardData(demoEmail, demoName, false);
   };
 
   // Switch demo perspective dynamically when logged in as SuperAdmin
   const handleSwitchDemoRole = (roleType) => {
     switch (roleType) {
       case 'SuperAdmin':
-        fetchDashboardData('kwendland@wvusd.org', 'Super Admin');
+        fetchDashboardData('kwendland@wvusd.org', 'Super Admin', false);
         break;
       case 'HighSchoolCounselor':
-        fetchDashboardData('sburns@wvusd.org', 'Burns, S');
+        fetchDashboardData('sburns@wvusd.org', 'Burns, S', false);
         break;
       case 'MiddleSchoolCounselor':
-        fetchDashboardData('jochen@wvusd.org', 'Chen, J');
+        fetchDashboardData('jochen@wvusd.org', 'Chen, J', false);
         break;
       case 'ElementaryTeacher':
-        fetchDashboardData('jurbaniec@wvusd.org', 'Urbaniec, Julie');
+        fetchDashboardData('jurbaniec@wvusd.org', 'Urbaniec, Julie', false);
         break;
       case 'SecondaryTeacher':
-        fetchDashboardData('cschultz@wvusd.org', 'Schultz, Corolar');
+        fetchDashboardData('cschultz@wvusd.org', 'Schultz, Corolar', false);
         break;
       default:
         break;
@@ -445,12 +613,51 @@ export default function App() {
     setActiveView('overview');
   };
 
-  // If user is not logged in, render the Login View
+  // 1. Guard initial auth resolution & data loading for direct-link bookmarks:
+  // If user state is still resolving, or if user is set but students dataset is still fetching (preventing all-zeros bug)
+  if (isAuthResolving || (isLoading && students.length === 0)) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-blue-950 flex flex-col justify-center items-center p-4 text-slate-800">
+        {/* Background Decorative Rings */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none opacity-20">
+          <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-blue-500 blur-3xl" />
+          <div className="absolute top-1/2 -right-40 w-96 h-96 rounded-full bg-indigo-500 blur-3xl" />
+        </div>
+
+        <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-200/80 p-8 text-center space-y-5 animate-fade-in backdrop-blur-md">
+          <div className="w-20 h-20 mx-auto p-2.5 bg-slate-50 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-center">
+            <img
+              src={DISTRICT_LOGO}
+              alt="Walnut Valley USD"
+              className="w-full h-full object-contain"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-center gap-2 text-blue-600 font-bold text-sm">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>Loading WVUSD SBAC Portal...</span>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Verifying Google credentials and synchronizing longitudinal assessment data...
+            </p>
+          </div>
+
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-center gap-2 text-[11px] text-slate-400 font-mono">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Secure District SSO Session</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. If user is unauthenticated after auth resolution, render the Login View
   if (!user) {
     return (
       <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
         <LoginView
-          onLoginSuccess={(email, name) => fetchDashboardData(email, name)}
+          onLoginSuccess={(email, name) => fetchDashboardData(email, name, false)}
           onDemoLogin={handleDemoLogin}
           isLoading={isLoading}
           authError={authError}
