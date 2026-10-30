@@ -484,7 +484,7 @@ export default function ExecutiveOverview({
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
               {gradeBand === 'Elementary'
-                ? 'Showing strictly Grades 3, 4, and 5 (CAASPP testing grades). Teachers are grouped under Grade Level Summary rows.'
+                ? 'Showing strictly Grades 4 and 5. Teachers are grouped under Grade Level Summary rows.'
                 : 'Hierarchical breakdown of grade-level cohorts and designated student caseloads.'}
             </p>
           </div>

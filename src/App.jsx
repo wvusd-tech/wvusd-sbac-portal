@@ -60,9 +60,17 @@ class ViewErrorBoundary extends React.Component {
 }
 
 export default function App() {
-  // Guard initial auth state resolution (prevents "all zeros" bug on direct-link bookmarks)
-  const [isAuthResolving, setIsAuthResolving] = useState(true);
-  const [user, setUser] = useState(null);
+  // Synchronously verify if an active session exists in memory/sessionStorage:
+  // If not in sessionStorage, immediately force Google Sign-In prompt without delay or auto-fetching
+  const [user, setUser] = useState(() => {
+    const session = getStoredSession();
+    return session?.user || null;
+  });
+
+  const [isAuthResolving, setIsAuthResolving] = useState(() => {
+    const session = getStoredSession();
+    return Boolean(session && session.email);
+  });
   const [students, setStudents] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState(null);
@@ -244,17 +252,19 @@ export default function App() {
     let isMounted = true;
 
     const restoreSessionOnMount = async () => {
+      const stored = getStoredSession();
+
+      if (!stored || !stored.email) {
+        // No active session in memory/sessionStorage - force clean Google Sign-In prompt immediately
+        if (isMounted) {
+          setIsAuthResolving(false);
+          setUser(null);
+        }
+        return;
+      }
+
       setIsAuthResolving(true);
       try {
-        const stored = getStoredSession();
-
-        if (!stored || !stored.email) {
-          // No stored credential or session found
-          if (isMounted) {
-            setIsAuthResolving(false);
-          }
-          return;
-        }
 
         // Check for cached students from previous session
         const cached = getCachedStudents();
@@ -410,15 +420,15 @@ export default function App() {
     setActiveFlagFilter(null);
   };
 
-  // Compute available grades for current parameters (strictly 3, 4, 5 for Elementary)
+  // Compute available grades for current parameters (strictly 4 and 5 for Elementary)
   const availableGrades = useMemo(() => {
     let pool = Array.isArray(students) ? students : [];
     if (selectedSite !== 'ALL') pool = pool.filter(s => s && s.school === selectedSite);
     pool = pool.filter(s => s && s.gradeBand === gradeBand);
 
     if (gradeBand === 'Elementary') {
-      // Restrict strictly to Grades 3, 4, and 5 (exclude Grades 1 and 2 entirely)
-      return [3, 4, 5];
+      // Restrict strictly to Grades 4 and 5 (exclude Grade 3 as well as Grades 1 and 2)
+      return [4, 5];
     }
 
     const gradesSet = new Set(pool.map(s => s.grade).filter(Boolean));
@@ -432,7 +442,7 @@ export default function App() {
     setActiveStaffFilter(null);
   };
 
-  // Compute available teachers / staff for current filters (strictly 3, 4, 5 for Elementary)
+  // Compute available teachers / staff for current filters (strictly 4 and 5 for Elementary)
   const staffList = useMemo(() => {
     let pool = Array.isArray(students) ? students : [];
     if (selectedSite !== 'ALL') {
@@ -440,7 +450,7 @@ export default function App() {
     }
     pool = pool.filter(s => s && s.gradeBand === gradeBand);
     if (gradeBand === 'Elementary') {
-      pool = pool.filter(s => s && Number(s.grade) >= 3 && Number(s.grade) <= 5);
+      pool = pool.filter(s => s && Number(s.grade) >= 4 && Number(s.grade) <= 5);
     }
     if (selectedGrade !== 'ALL') {
       pool = pool.filter(s => s && s.grade === Number(selectedGrade));
@@ -489,9 +499,9 @@ export default function App() {
     // Filter by grade band
     list = list.filter(s => s && s.gradeBand === gradeBand);
 
-    // Strictly Grades 3, 4, 5 for Elementary (exclude Grades 1 and 2 entirely)
+    // Strictly Grades 4 and 5 for Elementary (exclude Grade 3 entirely)
     if (gradeBand === 'Elementary') {
-      list = list.filter(s => s && Number(s.grade) >= 3 && Number(s.grade) <= 5);
+      list = list.filter(s => s && Number(s.grade) >= 4 && Number(s.grade) <= 5);
     }
 
     // Filter by specific grade if selected
@@ -573,12 +583,22 @@ export default function App() {
     return list;
   }, [cohortStudents, activeFlagFilter, activeStaffFilter, levelQuickFilter, subjectFocus, activeView, students]);
 
+  // Explicitly scroll window to top whenever switching to roster view (prevents scroll jump)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && activeView === 'roster') {
+      window.scrollTo(0, 0);
+    }
+  }, [activeView]);
+
   // Drilldown handler for an entire grade cohort
   const handleSelectGradeRoster = (gradeNum) => {
     setSelectedGrade(String(gradeNum));
     setActiveStaffFilter(null);
     setSelectedStaff('ALL');
     setActiveView('roster');
+    if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+    }
   };
 
   // Drilldown handler from breakdown table or teacher row click
@@ -593,7 +613,7 @@ export default function App() {
       setGradeBand(staffRow.gradeBand);
     } else if (staffRow.grade) {
       const g = Number(staffRow.grade);
-      if (g >= 3 && g <= 5) setGradeBand('Elementary');
+      if (g >= 4 && g <= 5) setGradeBand('Elementary');
       else if (g >= 6 && g <= 8) setGradeBand('Middle');
       else if (g >= 9 && g <= 12) setGradeBand('High');
     }
@@ -604,6 +624,9 @@ export default function App() {
     }
 
     setActiveView('roster');
+    if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+    }
   };
 
   // Reset staff filter & view back to Executive Overview

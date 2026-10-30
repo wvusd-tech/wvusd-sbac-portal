@@ -155,7 +155,7 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
 
 /**
  * Computes breakdown rows for Staff:
- * - Elementary (3-5): Grouped by Teacher
+ * - Elementary (4-5): Grouped by Teacher
  * - Middle (6-8) & High School (9-12): Grouped by Teacher / Counselor Caseload
  */
 export function computeStaffBreakdown(students = [], gradeBand = 'Elementary') {
@@ -163,7 +163,7 @@ export function computeStaffBreakdown(students = [], gradeBand = 'Elementary') {
   if (gradeBand === 'Elementary') {
     safeList = safeList.filter(s => {
       const g = Number(s.grade);
-      return g >= 3 && g <= 5;
+      return g === 4 || g === 5;
     });
   }
   const map = new Map();
@@ -258,18 +258,18 @@ export function computeStaffBreakdown(students = [], gradeBand = 'Elementary') {
 /**
  * Computes hierarchical breakdown:
  * Groups students by Grade Level summary rows, and nests teachers under their respective grade.
- * - Elementary (strictly Grades 3, 4, 5 - excluding Grades 1 and 2)
+ * - Elementary (strictly Grades 4 and 5 - excluding Grade 3, 2, 1)
  * - Middle (Grades 6, 7, 8)
  * - High (Grades 9, 10, 11, 12)
  */
 export function computeHierarchicalBreakdown(students = [], gradeBand = 'Elementary') {
   let safeList = Array.isArray(students) ? students.filter(Boolean) : [];
   
-  // Strictly Grades 3, 4, 5 for Elementary (exclude Grades 1 and 2)
+  // Strictly Grades 4 and 5 for Elementary (exclude Grade 3 entirely from the overview matrix)
   if (gradeBand === 'Elementary') {
     safeList = safeList.filter(s => {
       const g = Number(s.grade);
-      return g >= 3 && g <= 5;
+      return g === 4 || g === 5;
     });
   }
 

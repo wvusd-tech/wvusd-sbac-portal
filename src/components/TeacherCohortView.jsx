@@ -1,5 +1,5 @@
 // src/components/TeacherCohortView.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import StudentCard from './StudentCard.jsx';
 import { isBubbleStudent, getDistanceToStandard } from '../config.js';
 import { 
@@ -13,6 +13,10 @@ import {
   Search, 
   Target, 
   Filter,
+  ShieldAlert,
+  Languages,
+  FileText,
+  RotateCcw,
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
@@ -29,9 +33,17 @@ export default function TeacherCohortView({
 }) {
   const [activeSubject, setActiveSubject] = useState(subjectFocus === 'MATH' ? 'MATH' : subjectFocus === 'ELA' ? 'ELA' : 'ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeRosterFlag, setActiveRosterFlag] = useState(null); // 'SPED' | 'EL' | '504' | 'BUBBLE' | null
   const [copiedTier, setCopiedTier] = useState(null);
   const [copiedAllPlan, setCopiedAllPlan] = useState(false);
   const [isTiersOpen, setIsTiersOpen] = useState(true);
+
+  // Explicitly scroll window to top whenever roster view mounts or active staff changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+    }
+  }, [activeStaffFilter]);
 
   // Determine educator metadata if a teacher was selected or if logged-in user is a teacher
   const educatorName = activeStaffFilter?.staffName || (user?.role === 'ElementaryTeacher' || user?.role === 'SecondaryOrSiteTeacher' ? user?.name : null);
@@ -69,15 +81,66 @@ export default function TeacherCohortView({
     return matches.length > 0 ? matches : safeStudents;
   }, [students, activeStaffFilter]);
 
-  // Search filtered roster
+  // Compute demographic & support flag metrics across this specific educator's roster
+  const rosterDemographics = useMemo(() => {
+    const total = educatorRoster.length;
+    let spedCount = 0;
+    let elCount = 0;
+    let plan504Count = 0;
+    let bubbleStudentsCount = 0;
+
+    for (const s of educatorRoster) {
+      if (s.flags?.sped) spedCount++;
+      if (s.flags?.plan504) plan504Count++;
+      if (s.flags?.elStatus && s.flags.elStatus !== 'EO' && s.flags.elStatus.trim().length > 0) elCount++;
+
+      const elaBubble = s.latestEla?.scaledScore ? isBubbleStudent(s.latestEla.scaledScore, s.grade, 'ELA') : (s.latestEla?.performanceLevel === 2);
+      const mathBubble = s.latestMath?.scaledScore ? isBubbleStudent(s.latestMath.scaledScore, s.grade, 'Math') : (s.latestMath?.performanceLevel === 2);
+      if (elaBubble || mathBubble) bubbleStudentsCount++;
+    }
+
+    return {
+      total,
+      spedCount,
+      spedPct: total > 0 ? ((spedCount / total) * 100).toFixed(1) : '0.0',
+      elCount,
+      elPct: total > 0 ? ((elCount / total) * 100).toFixed(1) : '0.0',
+      plan504Count,
+      bubbleStudentsCount
+    };
+  }, [educatorRoster]);
+
+  // Handle clicking on a demographic filter pill
+  const handleFlagClick = (flag) => {
+    setActiveRosterFlag(prev => prev === flag ? null : flag);
+  };
+
+  // Search and flag-filtered roster
   const displayedStudents = useMemo(() => {
-    if (!searchQuery.trim()) return educatorRoster;
+    let list = educatorRoster;
+
+    // Filter by active demographic support flag
+    if (activeRosterFlag === 'SPED') {
+      list = list.filter(s => Boolean(s.flags?.sped));
+    } else if (activeRosterFlag === 'EL') {
+      list = list.filter(s => Boolean(s.flags?.elStatus && s.flags.elStatus !== 'EO' && s.flags.elStatus.trim().length > 0));
+    } else if (activeRosterFlag === '504') {
+      list = list.filter(s => Boolean(s.flags?.plan504));
+    } else if (activeRosterFlag === 'BUBBLE') {
+      list = list.filter(s => {
+        const elaBubble = s.latestEla?.scaledScore ? isBubbleStudent(s.latestEla.scaledScore, s.grade, 'ELA') : (s.latestEla?.performanceLevel === 2);
+        const mathBubble = s.latestMath?.scaledScore ? isBubbleStudent(s.latestMath.scaledScore, s.grade, 'Math') : (s.latestMath?.performanceLevel === 2);
+        return elaBubble || mathBubble;
+      });
+    }
+
+    if (!searchQuery.trim()) return list;
     const q = searchQuery.toLowerCase().trim();
-    return educatorRoster.filter(s => 
+    return list.filter(s => 
       (s.name && s.name.toLowerCase().includes(q)) || 
       (s.studentId && String(s.studentId).includes(q))
     );
-  }, [educatorRoster, searchQuery]);
+  }, [educatorRoster, activeRosterFlag, searchQuery]);
 
   // Categorize students into 4 distinct MTSS action tiers
   // Tier 1: Exceeded (Level 4 - Advanced Enrichment)
@@ -504,20 +567,125 @@ export default function TeacherCohortView({
           </div>
         </div>
 
+        {/* Cohort Demographics & Support Flags Filter Bar */}
+        <div className="bg-white border border-slate-200/80 rounded-2xl px-5 py-3.5 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+              Cohort Demographics & Support Flags:
+            </span>
+            {activeRosterFlag && (
+              <span className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200 animate-fade-in">
+                Filtering by: {
+                  activeRosterFlag === 'SPED' ? 'SPED (IEP)' :
+                  activeRosterFlag === 'EL' ? 'Active EL (LEP)' :
+                  activeRosterFlag === '504' ? '504 Plans' :
+                  'Bubble Students'
+                }
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            {/* SPED Pill Button */}
+            <button
+              type="button"
+              onClick={() => handleFlagClick('SPED')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                activeRosterFlag === 'SPED'
+                  ? 'bg-purple-600 text-white border-purple-700 shadow-sm ring-2 ring-purple-400 ring-offset-1'
+                  : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300'
+              }`}
+              title="Click to filter roster by Special Education (IEP)"
+            >
+              <ShieldAlert className={`w-3.5 h-3.5 ${activeRosterFlag === 'SPED' ? 'text-white' : 'text-purple-600'}`} />
+              <span>SPED (IEP): {rosterDemographics.spedCount}</span>
+              <span className="text-[10px] opacity-80">
+                ({rosterDemographics.spedPct}%)
+              </span>
+            </button>
+
+            {/* Active EL Pill Button */}
+            <button
+              type="button"
+              onClick={() => handleFlagClick('EL')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                activeRosterFlag === 'EL'
+                  ? 'bg-teal-600 text-white border-teal-700 shadow-sm ring-2 ring-teal-400 ring-offset-1'
+                  : 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100 hover:border-teal-300'
+              }`}
+              title="Click to filter roster by Active English Learners (LEP)"
+            >
+              <Languages className={`w-3.5 h-3.5 ${activeRosterFlag === 'EL' ? 'text-white' : 'text-teal-600'}`} />
+              <span>Active EL (LEP): {rosterDemographics.elCount}</span>
+              <span className="text-[10px] opacity-80">
+                ({rosterDemographics.elPct}%)
+              </span>
+            </button>
+
+            {/* 504 Plans Pill Button */}
+            <button
+              type="button"
+              onClick={() => handleFlagClick('504')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                activeRosterFlag === '504'
+                  ? 'bg-indigo-600 text-white border-indigo-700 shadow-sm ring-2 ring-indigo-400 ring-offset-1'
+                  : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 hover:border-indigo-300'
+              }`}
+              title="Click to filter roster by Section 504 Accommodations"
+            >
+              <FileText className={`w-3.5 h-3.5 ${activeRosterFlag === '504' ? 'text-white' : 'text-indigo-600'}`} />
+              <span>504 Plans: {rosterDemographics.plan504Count}</span>
+            </button>
+
+            {/* Bubble Students Pill Button */}
+            <button
+              type="button"
+              onClick={() => handleFlagClick('BUBBLE')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                activeRosterFlag === 'BUBBLE'
+                  ? 'bg-amber-500 text-white border-amber-600 shadow-sm ring-2 ring-amber-400 ring-offset-1'
+                  : 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100 hover:border-amber-400'
+              }`}
+              title="Click to filter roster by Bubble Students (Level 2 Nearly Met near standard threshold)"
+            >
+              <Target className={`w-3.5 h-3.5 ${activeRosterFlag === 'BUBBLE' ? 'text-white' : 'text-amber-600'}`} />
+              <span>Bubble Students: {rosterDemographics.bubbleStudentsCount}</span>
+            </button>
+
+            {/* Clear Filter Action */}
+            {activeRosterFlag && (
+              <button
+                type="button"
+                onClick={() => setActiveRosterFlag(null)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 transition-colors shadow-xs ml-1 cursor-pointer"
+                title="Clear demographic filter and show full roster"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                <span>Clear Filter</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* The Tiled Cards Grid */}
         {displayedStudents.length === 0 ? (
           <div className="bg-white border border-slate-200/80 rounded-2xl p-10 text-center">
             <Filter className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-            <h4 className="text-sm font-bold text-slate-700">No students matched search filter</h4>
+            <h4 className="text-sm font-bold text-slate-700">No students matched active filter</h4>
             <p className="text-xs text-slate-500 mt-1">
-              Try adjusting your query or click reset.
+              {activeRosterFlag
+                ? `No students in this roster match ${activeRosterFlag === 'SPED' ? 'SPED (IEP)' : activeRosterFlag === 'EL' ? 'Active EL (LEP)' : activeRosterFlag === '504' ? '504 Plans' : 'Bubble Students'}.`
+                : 'Try adjusting your search query or clear filters.'}
             </p>
             <button
               type="button"
-              onClick={() => setSearchQuery('')}
-              className="mt-3 px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+              onClick={() => {
+                setActiveRosterFlag(null);
+                setSearchQuery('');
+              }}
+              className="mt-3 px-3 py-1 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
             >
-              Clear Search
+              Clear Filter
             </button>
           </div>
         ) : (

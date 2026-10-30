@@ -37,7 +37,7 @@ export function removeCookie(name) {
 }
 
 /**
- * Persists user session across localStorage, sessionStorage, and cookies
+ * Persists user session in active sessionStorage
  */
 export function saveUserSession(user, rawCredential = null) {
   if (!user || !user.email) return;
@@ -45,20 +45,16 @@ export function saveUserSession(user, rawCredential = null) {
   const serialized = JSON.stringify(user);
 
   try {
-    localStorage.setItem(STORAGE_KEYS.USER, serialized);
     sessionStorage.setItem(STORAGE_KEYS.USER, serialized);
-    setCookie(STORAGE_KEYS.SESSION_COOKIE, serialized, 7);
   } catch (err) {
-    console.warn('Unable to persist user session:', err);
+    console.warn('Unable to persist user to sessionStorage:', err);
   }
 
   if (rawCredential) {
     try {
-      localStorage.setItem(STORAGE_KEYS.CREDENTIAL, rawCredential);
       sessionStorage.setItem(STORAGE_KEYS.CREDENTIAL, rawCredential);
-      setCookie(STORAGE_KEYS.CREDENTIAL, rawCredential, 7);
     } catch (err) {
-      console.warn('Unable to persist raw credential:', err);
+      console.warn('Unable to persist raw credential to sessionStorage:', err);
     }
   }
 }
@@ -75,11 +71,6 @@ export function saveCachedStudents(students) {
     } catch {
       // Session storage quota might be hit
     }
-    try {
-      localStorage.setItem(STORAGE_KEYS.STUDENTS, serialized);
-    } catch {
-      console.warn('LocalStorage quota exceeded for student dataset');
-    }
   } catch (err) {
     console.warn('Failed to serialize cached students:', err);
   }
@@ -93,16 +84,6 @@ export function getCachedStudents() {
     const fromSession = sessionStorage.getItem(STORAGE_KEYS.STUDENTS);
     if (fromSession) {
       const parsed = JSON.parse(fromSession);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    const fromLocal = localStorage.getItem(STORAGE_KEYS.STUDENTS);
-    if (fromLocal) {
-      const parsed = JSON.parse(fromLocal);
       if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch {
@@ -131,11 +112,12 @@ export function clearUserSession() {
 }
 
 /**
- * Validates and extracts a stored session from localStorage, sessionStorage, or session cookies.
- * Verifies validity, token expiry, and domain restrictions.
+ * Validates and extracts a stored session from active sessionStorage.
+ * Strictly verifies active @wvusd.org session state.
+ * Never auto-bypasses authentication from persistent localStorage or cookies.
  */
 export function getStoredSession() {
-  // 1. Check for stored user object in sessionStorage or localStorage
+  // Check for active user object in sessionStorage
   const checkUserJson = (jsonStr) => {
     if (!jsonStr) return null;
     try {
@@ -146,7 +128,7 @@ export function getStoredSession() {
             user: parsed,
             email: parsed.email.toLowerCase().trim(),
             name: parsed.name || parsed.email.split('@')[0],
-            source: 'stored_user'
+            source: 'sessionStorage'
           };
         }
       }
@@ -159,26 +141,11 @@ export function getStoredSession() {
   try {
     const sessionUser = checkUserJson(sessionStorage.getItem(STORAGE_KEYS.USER));
     if (sessionUser) return sessionUser;
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('Error reading sessionStorage user:', err);
   }
 
-  try {
-    const localUser = checkUserJson(localStorage.getItem(STORAGE_KEYS.USER));
-    if (localUser) return localUser;
-  } catch {
-    // ignore
-  }
-
-  // 2. Check for cookie session
-  try {
-    const cookieUser = checkUserJson(getCookie(STORAGE_KEYS.SESSION_COOKIE));
-    if (cookieUser) return cookieUser;
-  } catch {
-    // ignore
-  }
-
-  // 3. Check for raw Google ID token (JWT) in sessionStorage, localStorage, or cookie
+  // Check for raw Google ID token (JWT) in active sessionStorage
   const checkCredentialToken = (token) => {
     if (!token) return null;
     try {
@@ -201,7 +168,7 @@ export function getStoredSession() {
         email,
         name: decoded.name || email.split('@')[0],
         credential: token,
-        source: 'credential_token'
+        source: 'sessionStorage_credential'
       };
     } catch {
       return null;
@@ -211,23 +178,10 @@ export function getStoredSession() {
   try {
     const credSession = checkCredentialToken(sessionStorage.getItem(STORAGE_KEYS.CREDENTIAL));
     if (credSession) return credSession;
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('Error reading sessionStorage credential:', err);
   }
 
-  try {
-    const credLocal = checkCredentialToken(localStorage.getItem(STORAGE_KEYS.CREDENTIAL));
-    if (credLocal) return credLocal;
-  } catch {
-    // ignore
-  }
-
-  try {
-    const credCookie = checkCredentialToken(getCookie(STORAGE_KEYS.CREDENTIAL));
-    if (credCookie) return credCookie;
-  } catch {
-    // ignore
-  }
-
+  // No active session in memory / sessionStorage -> return null to force Google Sign-In prompt
   return null;
 }
