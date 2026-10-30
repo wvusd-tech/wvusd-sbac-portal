@@ -6,7 +6,8 @@ import {
   Calculator, 
   LayoutDashboard, 
   Users, 
-  School
+  School,
+  RotateCcw
 } from 'lucide-react';
 
 export default function ControlBar({
@@ -21,11 +22,15 @@ export default function ControlBar({
   availableGrades = [],
   selectedGrade,
   onGradeChange,
+  staffList = [],
+  selectedStaff = 'ALL',
+  onStaffChange,
   activeView,
   onViewChange,
   user
 }) {
   const isSuperAdmin = user?.role === 'SuperAdmin';
+  const hasActiveFilters = selectedSite !== 'ALL' || selectedGrade !== 'ALL' || (selectedStaff && selectedStaff !== 'ALL');
 
   return (
     <div className="bg-white border-b border-slate-200/80 shadow-xs">
@@ -117,7 +122,7 @@ export default function ControlBar({
                 }`}
               >
                 <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
-                <span>ELA (Part 1)</span>
+                <span>ELA</span>
               </button>
               <button
                 onClick={() => onSubjectFocusChange('MATH')}
@@ -128,7 +133,7 @@ export default function ControlBar({
                 }`}
               >
                 <Calculator className="w-3.5 h-3.5 text-blue-600" />
-                <span>Math (Part 2)</span>
+                <span>Math</span>
               </button>
             </div>
 
@@ -155,7 +160,7 @@ export default function ControlBar({
               >
                 <Users className="w-3.5 h-3.5" />
                 <span>
-                  {gradeBand === 'Elementary' ? 'Small-Group Builder' : 'Cohort & Caseloads'}
+                  {gradeBand === 'Elementary' ? 'Teacher Roster & Groups' : 'Cohort & Caseloads'}
                 </span>
               </button>
             </div>
@@ -163,45 +168,81 @@ export default function ControlBar({
 
         </div>
 
-        {/* Bottom Filter Row: Site Filter & Grade Level Filter */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 text-xs">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* School Site Filter */}
-            {(isSuperAdmin || sitesList.length > 1) && (
-              <div className="flex items-center gap-1.5">
-                <School className="w-4 h-4 text-slate-400" />
-                <span className="font-semibold text-slate-600">School Site:</span>
-                <select
-                  value={selectedSite}
-                  onChange={(e) => onSiteChange(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-800 focus:ring-2 focus:ring-blue-500 focus:bg-white"
-                >
-                  <option value="ALL">All District Sites ({sitesList.length})</option>
-                  {sitesList.map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Grade Level Filter */}
+        {/* Bottom Filter Row: All Schools, All Grades, All Teachers/Staff */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100 text-xs">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            {/* 1. School Site Filter (All Schools) */}
             <div className="flex items-center gap-1.5">
-              <GraduationCap className="w-4 h-4 text-slate-400" />
-              <span className="font-semibold text-slate-600">Grade Level:</span>
+              <School className="w-4 h-4 text-slate-400 shrink-0" />
+              <span className="font-semibold text-slate-600">School:</span>
+              <select
+                value={selectedSite}
+                onChange={(e) => onSiteChange(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-800 focus:ring-2 focus:ring-blue-500 focus:bg-white text-xs max-w-[190px]"
+              >
+                <option value="ALL">All Schools ({sitesList.length})</option>
+                {sitesList.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 2. Grade Level Filter (All Grades) */}
+            <div className="flex items-center gap-1.5">
+              <GraduationCap className="w-4 h-4 text-slate-400 shrink-0" />
+              <span className="font-semibold text-slate-600">Grade:</span>
               <select
                 value={selectedGrade}
                 onChange={(e) => onGradeChange(e.target.value)}
-                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-800 focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-800 focus:ring-2 focus:ring-blue-500 focus:bg-white text-xs"
               >
-                <option value="ALL">All Grades in {gradeBand}</option>
+                <option value="ALL">All Grades ({gradeBand})</option>
                 {availableGrades.map(g => (
                   <option key={g} value={g}>Grade {g}</option>
                 ))}
               </select>
             </div>
+
+            {/* 3. Teacher / Staff Filter (All Teachers / Staff) */}
+            <div className="flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-slate-400 shrink-0" />
+              <span className="font-semibold text-slate-600">Teacher / Staff:</span>
+              <select
+                value={selectedStaff || 'ALL'}
+                onChange={(e) => onStaffChange?.(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 font-medium text-slate-800 focus:ring-2 focus:ring-blue-500 focus:bg-white text-xs max-w-[210px] truncate"
+              >
+                <option value="ALL">All Teachers / Staff ({staffList.length})</option>
+                {staffList.map((s, idx) => {
+                  const name = typeof s === 'string' ? s : s.staffName;
+                  const label = s.staffLabel ? ` · ${s.staffLabel}` : '';
+                  return (
+                    <option key={name + idx} value={name}>
+                      {name}{label}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {/* Quick Reset Button if filtered */}
+            {hasActiveFilters && (
+              <button
+                onClick={() => {
+                  onSiteChange('ALL');
+                  onGradeChange('ALL');
+                  onStaffChange?.('ALL');
+                }}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-blue-600 py-0.5 px-1.5 rounded hover:bg-slate-100 transition-colors"
+                title="Reset top filters to All Schools, All Grades, All Staff"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Filters</span>
+              </button>
+            )}
           </div>
 
-          <div className="text-[11px] text-slate-400 italic">
+          <div className="text-[11px] text-slate-400 italic hidden md:block">
             Official Smarter Balanced / CAASPP Longitudinal Dataset
           </div>
         </div>

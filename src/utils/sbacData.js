@@ -4,11 +4,13 @@ import { isBubbleStudent, getDistanceToStandard } from '../config.js';
 /**
  * Computes executive KPI summary metrics for an array of student objects
  */
-export function computeKPISummary(students, subjectFocus = 'ALL') {
-  const total = students.length;
+export function computeKPISummary(students = [], subjectFocus = 'ALL') {
+  const safeList = Array.isArray(students) ? students.filter(Boolean) : [];
+  const total = safeList.length;
   if (total === 0) {
     return {
       total: 0,
+      studentsWithScore: 0,
       metExceededCount: 0,
       metExceededPct: 0,
       levelCounts: { 1: 0, 2: 0, 3: 0, 4: 0 },
@@ -43,7 +45,8 @@ export function computeKPISummary(students, subjectFocus = 'ALL') {
   let plan504Count = 0;
   let homelessFosterCount = 0;
 
-  for (const s of students) {
+  for (const s of safeList) {
+    if (!s) continue;
     if (s.flags?.sped) spedCount++;
     if (s.flags?.plan504) plan504Count++;
     if (s.flags?.homelessFoster) homelessFosterCount++;
@@ -153,27 +156,30 @@ export function computeKPISummary(students, subjectFocus = 'ALL') {
 /**
  * Computes breakdown rows for Staff:
  * - Elementary (3-5): Grouped by Teacher
- * - Middle (6-8) & High School (9-12): Grouped by Grade Cohort & Counselor Caseload
+ * - Middle (6-8) & High School (9-12): Grouped by Teacher / Counselor Caseload
  */
-export function computeStaffBreakdown(students, gradeBand = 'Elementary') {
+export function computeStaffBreakdown(students = [], gradeBand = 'Elementary') {
+  const safeList = Array.isArray(students) ? students.filter(Boolean) : [];
   const map = new Map();
 
-  for (const s of students) {
+  for (const s of safeList) {
+    if (!s) continue;
     const staffName = s.staffName || 'Unassigned';
     const grade = s.grade || 'N/A';
     const school = s.school || 'Unassigned';
+    const studentGradeBand = s.gradeBand || gradeBand;
     
-    // Grouping key: in Elementary, group by Teacher + Grade.
-    // In Middle / High, group by Counselor + Grade Cohort
+    // Grouping key: Teacher/Counselor + Grade + School
     const key = `${staffName}___${grade}___${school}`;
 
     if (!map.has(key)) {
       map.set(key, {
         staffName,
-        staffLabel: s.staffLabel || (gradeBand === 'Elementary' ? 'Teacher' : 'Counselor'),
+        staffLabel: s.staffLabel || (studentGradeBand === 'Elementary' ? 'Teacher' : 'Counselor'),
         staffEmail: s.staffEmail || '',
         grade,
         school,
+        gradeBand: studentGradeBand,
         total: 0,
         elaScores: [],
         mathScores: [],
@@ -244,9 +250,10 @@ export function computeStaffBreakdown(students, gradeBand = 'Elementary') {
 }
 
 /**
- * Builds small-group intervention tiers for Elementary teachers
+ * Builds small-group intervention tiers for teachers
  */
-export function buildSmallGroups(students, subject = 'ELA') {
+export function buildSmallGroups(students = [], subject = 'ELA') {
+  const safeList = Array.isArray(students) ? students.filter(Boolean) : [];
   const tiers = {
     1: { level: 1, title: 'Tier 1: Intensive Intervention (Level 1)', students: [], bubbleCount: 0 },
     2: { level: 2, title: 'Tier 2: Strategic Intervention / Bubble Students (Level 2)', students: [], bubbleCount: 0 },
@@ -255,7 +262,8 @@ export function buildSmallGroups(students, subject = 'ELA') {
     untested: { level: 0, title: 'Untested / Prior Year Pending', students: [], bubbleCount: 0 }
   };
 
-  for (const s of students) {
+  for (const s of safeList) {
+    if (!s) continue;
     const test = subject === 'MATH' ? s.latestMath : s.latestEla;
     const level = test?.performanceLevel;
     const isBubble = test?.scaledScore ? isBubbleStudent(test.scaledScore, s.grade, subject === 'MATH' ? 'Math' : 'ELA') : false;

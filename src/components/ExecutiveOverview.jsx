@@ -15,9 +15,9 @@ import {
 } from 'lucide-react';
 
 export default function ExecutiveOverview({ 
-  students, 
-  gradeBand, 
-  subjectFocus, 
+  students = [], 
+  gradeBand = 'Elementary', 
+  subjectFocus = 'ALL', 
   onSelectStaff, 
   onSelectLevelFilter 
 }) {
@@ -38,9 +38,9 @@ export default function ExecutiveOverview({
     if (searchTerm.trim()) {
       const q = searchTerm.toLowerCase();
       rows = rows.filter(r => 
-        r.staffName.toLowerCase().includes(q) || 
+        (r.staffName && r.staffName.toLowerCase().includes(q)) || 
         String(r.grade).includes(q) ||
-        r.school.toLowerCase().includes(q)
+        (r.school && r.school.toLowerCase().includes(q))
       );
     }
     return [...rows].sort((a, b) => {
@@ -479,15 +479,19 @@ export default function ExecutiveOverview({
                   return (
                     <tr 
                       key={idx}
-                      className="hover:bg-blue-50/40 transition-colors group"
+                      onClick={() => onSelectStaff?.(row)}
+                      className="hover:bg-blue-50/50 transition-colors group cursor-pointer"
                     >
                       <td className="py-3 px-4 font-semibold text-slate-900 flex items-center gap-2">
-                        <span className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0">
-                          {row.staffName.charAt(0)}
+                        <span className="w-7 h-7 rounded-full bg-slate-100 border border-slate-200 text-slate-700 flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-blue-100 group-hover:text-blue-700 group-hover:border-blue-300 transition-colors">
+                          {row.staffName ? row.staffName.charAt(0) : 'S'}
                         </span>
                         <div>
-                          <div className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                            {row.staffName}
+                          <div className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors flex items-center gap-1.5">
+                            <span>{row.staffName}</span>
+                            <span className="text-[10px] text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity font-normal">
+                              View Roster →
+                            </span>
                           </div>
                           {row.staffEmail && (
                             <div className="text-[11px] text-slate-400 font-mono">
@@ -555,11 +559,15 @@ export default function ExecutiveOverview({
 
                       <td className="py-3 px-4 text-right">
                         <button
-                          onClick={() => onSelectStaff(row)}
-                          className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 shadow-sm transition-all"
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectStaff?.(row);
+                          }}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 shadow-xs transition-all"
                         >
-                          <span>{gradeBand === 'Elementary' ? 'Open Roster' : 'View Cohort'}</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
+                          <span>Open Roster</span>
+                          <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600" />
                         </button>
                       </td>
                     </tr>

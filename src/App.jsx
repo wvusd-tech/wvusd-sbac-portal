@@ -8,7 +8,49 @@ import ExecutiveOverview from './components/ExecutiveOverview.jsx';
 import TeacherCohortView from './components/TeacherCohortView.jsx';
 import StudentModal from './components/StudentModal.jsx';
 import LoginView from './components/LoginView.jsx';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle, ArrowLeft } from 'lucide-react';
+
+class ViewErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('ViewErrorBoundary caught error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-white border border-rose-200 rounded-2xl p-8 max-w-lg mx-auto text-center my-12 shadow-sm">
+          <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-3">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <h3 className="text-base font-bold text-slate-800">
+            Unable to Display Roster View
+          </h3>
+          <p className="text-xs text-slate-500 mt-1 mb-5">
+            {this.state.error?.message || 'An unexpected rendering error occurred while loading this view.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              this.setState({ hasError: false, error: null });
+              this.props.onReset?.();
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-all"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Return to Executive Overview</span>
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   // Session & Authentication
@@ -38,9 +80,10 @@ export default function App() {
   const [subjectFocus, setSubjectFocus] = useState('ALL'); // 'ALL' | 'ELA' | 'MATH'
   const [selectedSite, setSelectedSite] = useState('ALL');
   const [selectedGrade, setSelectedGrade] = useState('ALL');
+  const [selectedStaff, setSelectedStaff] = useState('ALL');
+  const [activeStaffFilter, setActiveStaffFilter] = useState(null);
   const [activeView, setActiveView] = useState('overview'); // 'overview' | 'roster'
   const [activeModalStudent, setActiveModalStudent] = useState(null);
-  const [activeStaffFilter, setActiveStaffFilter] = useState(null);
   const [levelQuickFilter, setLevelQuickFilter] = useState(null);
 
   // Fetch payload from Apps Script Web App
@@ -173,6 +216,7 @@ export default function App() {
   const handleSiteChange = (site) => {
     setSelectedSite(site);
     setSelectedGrade('ALL');
+    setSelectedStaff('ALL');
     setActiveStaffFilter(null);
 
     // Auto-align grade band to new school
@@ -191,10 +235,11 @@ export default function App() {
   const handleGradeBandChange = (newBand) => {
     setGradeBand(newBand);
     setSelectedGrade('ALL');
+    setSelectedStaff('ALL');
     setActiveStaffFilter(null);
   };
 
-  // Compute available grades for the current grade band
+  // Compute available grades for current parameters
   const availableGrades = useMemo(() => {
     let pool = students;
     if (selectedSite !== 'ALL') pool = pool.filter(s => s.school === selectedSite);
@@ -204,31 +249,113 @@ export default function App() {
     return [...gradesSet].sort((a, b) => a - b);
   }, [students, selectedSite, gradeBand]);
 
+  // Handle Grade Change
+  const handleGradeChange = (gradeVal) => {
+    setSelectedGrade(gradeVal);
+    setSelectedStaff('ALL');
+    setActiveStaffFilter(null);
+  };
+
+  // Compute available teachers / staff for current filters
+  const staffList = useMemo(() => {
+    let pool = Array.isArray(students) ? students : [];
+    if (selectedSite !== 'ALL') {
+      pool = pool.filter(s => s && s.school === selectedSite);
+    }
+    pool = pool.filter(s => s && s.gradeBand === gradeBand);
+    if (selectedGrade !== 'ALL') {
+      pool = pool.filter(s => s && s.grade === Number(selectedGrade));
+    }
+
+    const map = new Map();
+    pool.forEach(s => {
+      if (s && s.staffName) {
+        const name = s.staffName.trim();
+        if (!map.has(name)) {
+          map.set(name, {
+            staffName: name,
+            staffEmail: s.staffEmail || '',
+            staffLabel: s.staffLabel || (gradeBand === 'Elementary' ? 'Teacher' : 'Counselor'),
+            school: s.school || '',
+            grade: s.grade || '',
+            gradeBand: s.gradeBand || gradeBand
+          });
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => a.staffName.localeCompare(b.staffName));
+  }, [students, selectedSite, gradeBand, selectedGrade]);
+
+  // Handle Teacher / Staff top dropdown change
+  const handleStaffChange = (staffVal) => {
+    setSelectedStaff(staffVal);
+    if (!staffVal || staffVal === 'ALL') {
+      setActiveStaffFilter(null);
+    } else {
+      const match = staffList.find(st => st.staffName === staffVal);
+      setActiveStaffFilter(match || { staffName: staffVal });
+    }
+  };
+
   // Filtered students for current top-level parameters
   const filteredStudents = useMemo(() => {
-    let list = students;
+    let list = Array.isArray(students) ? students.filter(Boolean) : [];
 
     // Filter by school site
     if (selectedSite !== 'ALL') {
-      list = list.filter(s => s.school === selectedSite);
+      list = list.filter(s => s && s.school === selectedSite);
     }
 
     // Filter by grade band
-    list = list.filter(s => s.gradeBand === gradeBand);
+    list = list.filter(s => s && s.gradeBand === gradeBand);
 
     // Filter by specific grade
     if (selectedGrade !== 'ALL') {
-      list = list.filter(s => s.grade === Number(selectedGrade));
+      list = list.filter(s => s && s.grade === Number(selectedGrade));
     }
 
-    // Filter by staff if selected
+    // Filter by staff if activeStaffFilter is set
     if (activeStaffFilter) {
-      list = list.filter(s => s.staffName === activeStaffFilter.staffName);
+      const targetEmail = (activeStaffFilter.staffEmail || '').toLowerCase().trim();
+      const targetName = (activeStaffFilter.staffName || '').toLowerCase().trim();
+
+      const matched = list.filter(s => {
+        if (!s) return false;
+        const sEmail = (s.staffEmail || '').toLowerCase().trim();
+        const sName = (s.staffName || '').toLowerCase().trim();
+
+        if (targetEmail && sEmail && targetEmail === sEmail) return true;
+        if (targetName && sName) {
+          if (targetName === sName) return true;
+          const cleanTarget = targetName.replace(/[,\s]+/g, ' ');
+          const cleanS = sName.replace(/[,\s]+/g, ' ');
+          if (cleanTarget === cleanS) return true;
+          if (cleanTarget.split(' ').reverse().join(' ') === cleanS) return true;
+        }
+        return false;
+      });
+
+      if (matched.length > 0) {
+        list = matched;
+      } else {
+        // Fallback to broader match across students to prevent false blank page
+        const broader = (Array.isArray(students) ? students : []).filter(s => {
+          if (!s) return false;
+          const sEmail = (s.staffEmail || '').toLowerCase().trim();
+          const sName = (s.staffName || '').toLowerCase().trim();
+          if (targetEmail && sEmail && targetEmail === sEmail) return true;
+          if (targetName && sName && (targetName === sName || sName.includes(targetName) || targetName.includes(sName))) return true;
+          return false;
+        });
+        list = broader;
+      }
     }
 
-    // Quick filter by Performance Level if clicked from Distribution Bar
-    if (levelQuickFilter) {
+    // Quick filter by Performance Level if clicked from Distribution Bar (overview only)
+    if (levelQuickFilter && activeView === 'overview') {
       list = list.filter(s => {
+        if (!s) return false;
         if (subjectFocus === 'ELA') return s.latestEla?.performanceLevel === levelQuickFilter;
         if (subjectFocus === 'MATH') return s.latestMath?.performanceLevel === levelQuickFilter;
         return s.latestEla?.performanceLevel === levelQuickFilter || s.latestMath?.performanceLevel === levelQuickFilter;
@@ -236,12 +363,38 @@ export default function App() {
     }
 
     return list;
-  }, [students, selectedSite, gradeBand, selectedGrade, activeStaffFilter, levelQuickFilter, subjectFocus]);
+  }, [students, selectedSite, gradeBand, selectedGrade, activeStaffFilter, levelQuickFilter, subjectFocus, activeView]);
 
-  // Drilldown handler from breakdown table
+  // Drilldown handler from breakdown table or teacher row click
   const handleSelectStaff = (staffRow) => {
+    if (!staffRow) return;
+
     setActiveStaffFilter(staffRow);
+    setSelectedStaff(staffRow.staffName || 'ALL');
+
+    // Align gradeBand if needed so students aren't filtered out
+    if (staffRow.gradeBand && ['Elementary', 'Middle', 'High'].includes(staffRow.gradeBand)) {
+      setGradeBand(staffRow.gradeBand);
+    } else if (staffRow.grade) {
+      const g = Number(staffRow.grade);
+      if (g >= 3 && g <= 5) setGradeBand('Elementary');
+      else if (g >= 6 && g <= 8) setGradeBand('Middle');
+      else if (g >= 9 && g <= 12) setGradeBand('High');
+    }
+
+    // Reset specific grade filter if the clicked staff member's grade differs
+    if (selectedGrade !== 'ALL' && staffRow.grade && Number(selectedGrade) !== Number(staffRow.grade)) {
+      setSelectedGrade('ALL');
+    }
+
     setActiveView('roster');
+  };
+
+  // Reset staff filter & view back to Executive Overview
+  const handleClearStaffFilter = () => {
+    setActiveStaffFilter(null);
+    setSelectedStaff('ALL');
+    setActiveView('overview');
   };
 
   // If user is not logged in, render the Login View
@@ -284,13 +437,16 @@ export default function App() {
           onSiteChange={handleSiteChange}
           availableGrades={availableGrades}
           selectedGrade={selectedGrade}
-          onGradeChange={setSelectedGrade}
+          onGradeChange={handleGradeChange}
+          staffList={staffList}
+          selectedStaff={selectedStaff}
+          onStaffChange={handleStaffChange}
           activeView={activeView}
           onViewChange={setActiveView}
           user={user}
         />
 
-        {/* Main Content Area */}
+        {/* Main Content Area Wrapped with Crash-Proof Error Boundary */}
         <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-24 space-y-4">
@@ -300,7 +456,7 @@ export default function App() {
               </p>
             </div>
           ) : (
-            <div>
+            <ViewErrorBoundary onReset={handleClearStaffFilter}>
               {activeView === 'overview' ? (
                 <ExecutiveOverview
                   students={filteredStudents}
@@ -317,10 +473,11 @@ export default function App() {
                   user={user}
                   onStudentClick={(s) => setActiveModalStudent(s)}
                   activeStaffFilter={activeStaffFilter}
-                  onClearStaffFilter={() => setActiveStaffFilter(null)}
+                  onClearStaffFilter={handleClearStaffFilter}
+                  onBackToOverview={() => setActiveView('overview')}
                 />
               )}
-            </div>
+            </ViewErrorBoundary>
           )}
         </main>
 
@@ -348,3 +505,4 @@ export default function App() {
     </GoogleOAuthProvider>
   );
 }
+
