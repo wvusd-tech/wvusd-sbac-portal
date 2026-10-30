@@ -1,7 +1,7 @@
 // src/App.jsx
 import React, { useState, useMemo } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { GOOGLE_CLIENT_ID, APPS_SCRIPT_URL } from './config.js';
+import { GOOGLE_CLIENT_ID, APPS_SCRIPT_URL, isBubbleStudent } from './config.js';
 import HeaderBar from './components/HeaderBar.jsx';
 import ControlBar from './components/ControlBar.jsx';
 import ExecutiveOverview from './components/ExecutiveOverview.jsx';
@@ -82,6 +82,7 @@ export default function App() {
   const [selectedGrade, setSelectedGrade] = useState('ALL');
   const [selectedStaff, setSelectedStaff] = useState('ALL');
   const [activeStaffFilter, setActiveStaffFilter] = useState(null);
+  const [activeFlagFilter, setActiveFlagFilter] = useState(null); // 'SPED' | 'EL' | '504' | 'BUBBLE' | null
   const [activeView, setActiveView] = useState('overview'); // 'overview' | 'roster'
   const [activeModalStudent, setActiveModalStudent] = useState(null);
   const [levelQuickFilter, setLevelQuickFilter] = useState(null);
@@ -218,6 +219,7 @@ export default function App() {
     setSelectedGrade('ALL');
     setSelectedStaff('ALL');
     setActiveStaffFilter(null);
+    setActiveFlagFilter(null);
 
     // Auto-align grade band to new school
     if (site !== 'ALL') {
@@ -237,13 +239,19 @@ export default function App() {
     setSelectedGrade('ALL');
     setSelectedStaff('ALL');
     setActiveStaffFilter(null);
+    setActiveFlagFilter(null);
   };
 
-  // Compute available grades for current parameters
+  // Compute available grades for current parameters (strictly 3, 4, 5 for Elementary)
   const availableGrades = useMemo(() => {
-    let pool = students;
-    if (selectedSite !== 'ALL') pool = pool.filter(s => s.school === selectedSite);
-    pool = pool.filter(s => s.gradeBand === gradeBand);
+    let pool = Array.isArray(students) ? students : [];
+    if (selectedSite !== 'ALL') pool = pool.filter(s => s && s.school === selectedSite);
+    pool = pool.filter(s => s && s.gradeBand === gradeBand);
+
+    if (gradeBand === 'Elementary') {
+      // Restrict strictly to Grades 3, 4, and 5 (exclude Grades 1 and 2 entirely)
+      return [3, 4, 5];
+    }
 
     const gradesSet = new Set(pool.map(s => s.grade).filter(Boolean));
     return [...gradesSet].sort((a, b) => a - b);
@@ -256,13 +264,16 @@ export default function App() {
     setActiveStaffFilter(null);
   };
 
-  // Compute available teachers / staff for current filters
+  // Compute available teachers / staff for current filters (strictly 3, 4, 5 for Elementary)
   const staffList = useMemo(() => {
     let pool = Array.isArray(students) ? students : [];
     if (selectedSite !== 'ALL') {
       pool = pool.filter(s => s && s.school === selectedSite);
     }
     pool = pool.filter(s => s && s.gradeBand === gradeBand);
+    if (gradeBand === 'Elementary') {
+      pool = pool.filter(s => s && Number(s.grade) >= 3 && Number(s.grade) <= 5);
+    }
     if (selectedGrade !== 'ALL') {
       pool = pool.filter(s => s && s.grade === Number(selectedGrade));
     }
@@ -298,8 +309,8 @@ export default function App() {
     }
   };
 
-  // Filtered students for current top-level parameters
-  const filteredStudents = useMemo(() => {
+  // Base cohort students for current site and gradeBand (before flag or staff filter)
+  const cohortStudents = useMemo(() => {
     let list = Array.isArray(students) ? students.filter(Boolean) : [];
 
     // Filter by school site
@@ -310,9 +321,38 @@ export default function App() {
     // Filter by grade band
     list = list.filter(s => s && s.gradeBand === gradeBand);
 
-    // Filter by specific grade
+    // Strictly Grades 3, 4, 5 for Elementary (exclude Grades 1 and 2 entirely)
+    if (gradeBand === 'Elementary') {
+      list = list.filter(s => s && Number(s.grade) >= 3 && Number(s.grade) <= 5);
+    }
+
+    // Filter by specific grade if selected
     if (selectedGrade !== 'ALL') {
       list = list.filter(s => s && s.grade === Number(selectedGrade));
+    }
+
+    return list;
+  }, [students, selectedSite, gradeBand, selectedGrade]);
+
+  // Filtered students for current top-level parameters + active flag filters
+  const filteredStudents = useMemo(() => {
+    let list = cohortStudents;
+
+    // Filter by Demographic & Support Flag if active
+    if (activeFlagFilter) {
+      if (activeFlagFilter === 'SPED') {
+        list = list.filter(s => Boolean(s.flags?.sped));
+      } else if (activeFlagFilter === 'EL') {
+        list = list.filter(s => Boolean(s.flags?.elStatus && s.flags.elStatus !== 'EO' && s.flags.elStatus.trim().length > 0));
+      } else if (activeFlagFilter === '504') {
+        list = list.filter(s => Boolean(s.flags?.plan504));
+      } else if (activeFlagFilter === 'BUBBLE') {
+        list = list.filter(s => {
+          const elaBubble = s.latestEla?.scaledScore ? isBubbleStudent(s.latestEla.scaledScore, s.grade, 'ELA') : (s.latestEla?.performanceLevel === 2);
+          const mathBubble = s.latestMath?.scaledScore ? isBubbleStudent(s.latestMath.scaledScore, s.grade, 'Math') : (s.latestMath?.performanceLevel === 2);
+          return elaBubble || mathBubble;
+        });
+      }
     }
 
     // Filter by staff if activeStaffFilter is set
@@ -363,7 +403,15 @@ export default function App() {
     }
 
     return list;
-  }, [students, selectedSite, gradeBand, selectedGrade, activeStaffFilter, levelQuickFilter, subjectFocus, activeView]);
+  }, [cohortStudents, activeFlagFilter, activeStaffFilter, levelQuickFilter, subjectFocus, activeView, students]);
+
+  // Drilldown handler for an entire grade cohort
+  const handleSelectGradeRoster = (gradeNum) => {
+    setSelectedGrade(String(gradeNum));
+    setActiveStaffFilter(null);
+    setSelectedStaff('ALL');
+    setActiveView('roster');
+  };
 
   // Drilldown handler from breakdown table or teacher row click
   const handleSelectStaff = (staffRow) => {
@@ -460,10 +508,14 @@ export default function App() {
               {activeView === 'overview' ? (
                 <ExecutiveOverview
                   students={filteredStudents}
+                  cohortStudents={cohortStudents}
                   gradeBand={gradeBand}
                   subjectFocus={subjectFocus}
                   onSelectStaff={handleSelectStaff}
+                  onSelectGradeRoster={handleSelectGradeRoster}
                   onSelectLevelFilter={setLevelQuickFilter}
+                  activeFlagFilter={activeFlagFilter}
+                  onSelectFlagFilter={setActiveFlagFilter}
                 />
               ) : (
                 <TeacherCohortView

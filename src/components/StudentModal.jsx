@@ -273,7 +273,6 @@ export default function StudentModal({ student, onClose }) {
                         <thead>
                           <tr className="border-b border-slate-200 text-slate-500">
                             <th className="pb-2 font-medium">Test Year</th>
-                            <th className="pb-2 font-medium">Grade</th>
                             <th className="pb-2 font-medium">Date Taken</th>
                             <th className="pb-2 font-medium">Scale Score</th>
                             <th className="pb-2 font-medium">Level</th>
@@ -283,7 +282,6 @@ export default function StudentModal({ student, onClose }) {
                           {sortedEla.map((rec, i) => (
                             <tr key={i} className="hover:bg-white/80 transition-colors">
                               <td className="py-2.5 font-bold text-slate-700">{rec.year}</td>
-                              <td className="py-2.5 text-slate-600">Gr {rec.testGrade}</td>
                               <td className="py-2.5 text-slate-500 font-sans">{rec.dateTaken || '—'}</td>
                               <td className="py-2.5 font-bold text-slate-900">{rec.scaledScore}</td>
                               <td className="py-2.5 font-sans">{getLevelBadge(rec.performanceLevel)}</td>
@@ -319,7 +317,6 @@ export default function StudentModal({ student, onClose }) {
                         <thead>
                           <tr className="border-b border-slate-200 text-slate-500">
                             <th className="pb-2 font-medium">Test Year</th>
-                            <th className="pb-2 font-medium">Grade</th>
                             <th className="pb-2 font-medium">Date Taken</th>
                             <th className="pb-2 font-medium">Scale Score</th>
                             <th className="pb-2 font-medium">Level</th>
@@ -329,7 +326,6 @@ export default function StudentModal({ student, onClose }) {
                           {sortedMath.map((rec, i) => (
                             <tr key={i} className="hover:bg-white/80 transition-colors">
                               <td className="py-2.5 font-bold text-slate-700">{rec.year}</td>
-                              <td className="py-2.5 text-slate-600">Gr {rec.testGrade}</td>
                               <td className="py-2.5 text-slate-500 font-sans">{rec.dateTaken || '—'}</td>
                               <td className="py-2.5 font-bold text-slate-900">{rec.scaledScore}</td>
                               <td className="py-2.5 font-sans">{getLevelBadge(rec.performanceLevel)}</td>

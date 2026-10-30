@@ -159,7 +159,13 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
  * - Middle (6-8) & High School (9-12): Grouped by Teacher / Counselor Caseload
  */
 export function computeStaffBreakdown(students = [], gradeBand = 'Elementary') {
-  const safeList = Array.isArray(students) ? students.filter(Boolean) : [];
+  let safeList = Array.isArray(students) ? students.filter(Boolean) : [];
+  if (gradeBand === 'Elementary') {
+    safeList = safeList.filter(s => {
+      const g = Number(s.grade);
+      return g >= 3 && g <= 5;
+    });
+  }
   const map = new Map();
 
   for (const s of safeList) {
@@ -247,6 +253,164 @@ export function computeStaffBreakdown(students = [], gradeBand = 'Elementary') {
     if (a.grade !== b.grade) return Number(a.grade) - Number(b.grade);
     return a.staffName.localeCompare(b.staffName);
   });
+}
+
+/**
+ * Computes hierarchical breakdown:
+ * Groups students by Grade Level summary rows, and nests teachers under their respective grade.
+ * - Elementary (strictly Grades 3, 4, 5 - excluding Grades 1 and 2)
+ * - Middle (Grades 6, 7, 8)
+ * - High (Grades 9, 10, 11, 12)
+ */
+export function computeHierarchicalBreakdown(students = [], gradeBand = 'Elementary') {
+  let safeList = Array.isArray(students) ? students.filter(Boolean) : [];
+  
+  // Strictly Grades 3, 4, 5 for Elementary (exclude Grades 1 and 2)
+  if (gradeBand === 'Elementary') {
+    safeList = safeList.filter(s => {
+      const g = Number(s.grade);
+      return g >= 3 && g <= 5;
+    });
+  }
+
+  const getGradeOrdinal = (g) => {
+    const num = Number(g);
+    if (num === 1) return '1st';
+    if (num === 2) return '2nd';
+    if (num === 3) return '3rd';
+    return `${num}th`;
+  };
+
+  const gradeMap = new Map();
+
+  for (const s of safeList) {
+    const gradeNum = Number(s.grade);
+    if (!gradeNum || isNaN(gradeNum)) continue;
+
+    if (!gradeMap.has(gradeNum)) {
+      gradeMap.set(gradeNum, {
+        grade: gradeNum,
+        gradeLabel: `Grade ${getGradeOrdinal(gradeNum)} Overview`,
+        school: s.school || '',
+        gradeBand: s.gradeBand || gradeBand,
+        students: [],
+        teachersMap: new Map()
+      });
+    }
+
+    const gradeGroup = gradeMap.get(gradeNum);
+    gradeGroup.students.push(s);
+
+    const staffName = (s.staffName || 'Unassigned').trim();
+    const teacherKey = `${staffName}___${s.school || ''}`;
+
+    if (!gradeGroup.teachersMap.has(teacherKey)) {
+      gradeGroup.teachersMap.set(teacherKey, {
+        staffName,
+        staffEmail: s.staffEmail || '',
+        staffLabel: s.staffLabel || (gradeBand === 'Elementary' ? 'Teacher' : 'Counselor'),
+        grade: gradeNum,
+        school: s.school || '',
+        gradeBand: s.gradeBand || gradeBand,
+        students: []
+      });
+    }
+
+    gradeGroup.teachersMap.get(teacherKey).students.push(s);
+  }
+
+  const computeMetrics = (studentList) => {
+    let total = studentList.length;
+    let testedEla = 0, metEla = 0;
+    let testedMath = 0, metMath = 0;
+    let sumElaDelta = 0, countElaDelta = 0;
+    let sumMathDelta = 0, countMathDelta = 0;
+    let elCount = 0;
+    let tier3NeedsCount = 0;
+    let bubbleCount = 0;
+    let spedCount = 0;
+    let plan504Count = 0;
+
+    for (const s of studentList) {
+      if (s.flags?.sped) spedCount++;
+      if (s.flags?.plan504) plan504Count++;
+      if (s.flags?.elStatus && s.flags.elStatus !== 'EO' && s.flags.elStatus.trim().length > 0) elCount++;
+
+      const ela = s.latestEla;
+      const math = s.latestMath;
+
+      if (ela?.scaledScore) {
+        testedEla++;
+        if (ela.performanceLevel >= 3) metEla++;
+      }
+      if (math?.scaledScore) {
+        testedMath++;
+        if (math.performanceLevel >= 3) metMath++;
+      }
+
+      // Tier 3 Needs: Level 1 (Standard Not Met / Intensive Need)
+      const isLevel1 = (ela && ela.performanceLevel === 1) || (math && math.performanceLevel === 1);
+      if (isLevel1) tier3NeedsCount++;
+
+      const bEla = ela?.scaledScore ? isBubbleStudent(ela.scaledScore, s.grade, 'ELA') : false;
+      const bMath = math?.scaledScore ? isBubbleStudent(math.scaledScore, s.grade, 'Math') : false;
+      if (bEla || bMath) bubbleCount++;
+
+      if (s.elaDelta !== null && s.elaDelta !== undefined) {
+        sumElaDelta += s.elaDelta;
+        countElaDelta++;
+      }
+      if (s.mathDelta !== null && s.mathDelta !== undefined) {
+        sumMathDelta += s.mathDelta;
+        countMathDelta++;
+      }
+    }
+
+    const combinedTested = testedEla + testedMath;
+    const combinedMet = metEla + metMath;
+    const combinedMetPct = combinedTested > 0 ? Number(((combinedMet / combinedTested) * 100).toFixed(1)) : 0;
+
+    const avgElaDelta = countElaDelta > 0 ? Number((sumElaDelta / countElaDelta).toFixed(1)) : null;
+    const avgMathDelta = countMathDelta > 0 ? Number((sumMathDelta / countMathDelta).toFixed(1)) : null;
+    const totalDeltas = countElaDelta + countMathDelta;
+    const avgOverallDelta = totalDeltas > 0 ? Number(((sumElaDelta + sumMathDelta) / totalDeltas).toFixed(1)) : null;
+
+    return {
+      total,
+      combinedMetPct,
+      avgElaDelta,
+      avgMathDelta,
+      avgOverallDelta,
+      elCount,
+      tier3NeedsCount,
+      bubbleCount,
+      spedCount,
+      plan504Count
+    };
+  };
+
+  const gradesArray = Array.from(gradeMap.values())
+    .map(g => {
+      const gradeMetrics = computeMetrics(g.students);
+      const teachers = Array.from(g.teachersMap.values())
+        .map(t => {
+          const teacherMetrics = computeMetrics(t.students);
+          return {
+            ...t,
+            ...teacherMetrics
+          };
+        })
+        .sort((a, b) => a.staffName.localeCompare(b.staffName));
+
+      return {
+        ...g,
+        ...gradeMetrics,
+        teachers
+      };
+    })
+    .sort((a, b) => a.grade - b.grade);
+
+  return gradesArray;
 }
 
 /**
