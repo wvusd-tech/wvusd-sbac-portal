@@ -13,6 +13,12 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
       studentsWithScore: 0,
       metExceededCount: 0,
       metExceededPct: 0,
+      elaStudentsWithScore: 0,
+      elaMetExceededCount: 0,
+      elaMetExceededPct: 0,
+      mathStudentsWithScore: 0,
+      mathMetExceededCount: 0,
+      mathMetExceededPct: 0,
       levelCounts: { 1: 0, 2: 0, 3: 0, 4: 0 },
       levelPcts: { 1: 0, 2: 0, 3: 0, 4: 0 },
       avgElaScore: null,
@@ -31,6 +37,10 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
 
   let metExceededCount = 0;
   let studentsWithScore = 0;
+  let elaMetExceededCount = 0;
+  let elaStudentsWithScore = 0;
+  let mathMetExceededCount = 0;
+  let mathStudentsWithScore = 0;
   const levelCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
 
   let sumEla = 0, countEla = 0;
@@ -59,9 +69,22 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
       sumEla += ela.scaledScore;
       countEla++;
     }
+    if (ela?.performanceLevel >= 1 && ela?.performanceLevel <= 4) {
+      elaStudentsWithScore++;
+      if (ela.performanceLevel >= 3) {
+        elaMetExceededCount++;
+      }
+    }
+
     if (math?.scaledScore) {
       sumMath += math.scaledScore;
       countMath++;
+    }
+    if (math?.performanceLevel >= 1 && math?.performanceLevel <= 4) {
+      mathStudentsWithScore++;
+      if (math.performanceLevel >= 3) {
+        mathMetExceededCount++;
+      }
     }
 
     if (s.elaDelta !== null && s.elaDelta !== undefined) {
@@ -113,6 +136,12 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
 
   const denominator = studentsWithScore > 0 ? studentsWithScore : total;
   const metExceededPct = Number(((metExceededCount / denominator) * 100).toFixed(1));
+  const elaMetExceededPct = elaStudentsWithScore > 0
+    ? Number(((elaMetExceededCount / elaStudentsWithScore) * 100).toFixed(1))
+    : 0;
+  const mathMetExceededPct = mathStudentsWithScore > 0
+    ? Number(((mathMetExceededCount / mathStudentsWithScore) * 100).toFixed(1))
+    : 0;
 
   const levelPcts = {
     1: Number(((levelCounts[1] / denominator) * 100).toFixed(1)),
@@ -137,6 +166,12 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
     studentsWithScore,
     metExceededCount,
     metExceededPct,
+    elaStudentsWithScore,
+    elaMetExceededCount,
+    elaMetExceededPct,
+    mathStudentsWithScore,
+    mathMetExceededCount,
+    mathMetExceededPct,
     levelCounts,
     levelPcts,
     avgElaScore,

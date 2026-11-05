@@ -124,7 +124,7 @@ export default function ExecutiveOverview({
           </div>
         </div>
 
-        {/* Card 2: Met / Exceeded Rate */}
+        {/* Card 2: Met / Exceeded Rate (Separated ELA & Math) */}
         <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-xs hover:shadow-md transition-shadow relative overflow-hidden">
           <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-50/50 rounded-full -mr-6 -mt-6 pointer-events-none" />
           <div className="flex items-center justify-between mb-3">
@@ -135,16 +135,31 @@ export default function ExecutiveOverview({
               <Award className="w-5 h-5" />
             </div>
           </div>
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-black text-emerald-600 tracking-tight font-mono">
-              {kpi.metExceededPct}%
-            </span>
-            <span className="text-xs font-semibold text-slate-500">
-              (L3 & L4)
-            </span>
-          </div>
-          <div className="mt-2 text-xs text-slate-500">
-            <span className="font-semibold text-emerald-700">{kpi.metExceededCount.toLocaleString()}</span> of {kpi.studentsWithScore.toLocaleString()} proficient students
+          <div className="grid grid-cols-2 gap-3 divide-x divide-slate-200/80">
+            <div className={subjectFocus === 'MATH' ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
+              <div className="flex items-baseline gap-1">
+                <span className="text-xs font-bold text-slate-700">ELA:</span>
+                <span className="text-[10px] font-semibold text-slate-400">[L3 & L4]</span>
+              </div>
+              <div className="text-2xl font-black text-emerald-600 tracking-tight font-mono leading-tight mt-0.5">
+                {kpi.elaMetExceededPct}%
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                <span className="font-semibold text-emerald-700 font-mono">{kpi.elaMetExceededCount.toLocaleString()}</span> of <span className="font-mono">{kpi.elaStudentsWithScore.toLocaleString()}</span>
+              </div>
+            </div>
+            <div className={`pl-3 ${subjectFocus === 'ELA' ? 'opacity-50 transition-opacity' : 'transition-opacity'}`}>
+              <div className="flex items-baseline gap-1">
+                <span className="text-xs font-bold text-slate-700">Math:</span>
+                <span className="text-[10px] font-semibold text-slate-400">[L3 & L4]</span>
+              </div>
+              <div className="text-2xl font-black text-emerald-600 tracking-tight font-mono leading-tight mt-0.5">
+                {kpi.mathMetExceededPct}%
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                <span className="font-semibold text-emerald-700 font-mono">{kpi.mathMetExceededCount.toLocaleString()}</span> of <span className="font-mono">{kpi.mathStudentsWithScore.toLocaleString()}</span>
+              </div>
+            </div>
           </div>
         </div>
 
