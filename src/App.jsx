@@ -1,7 +1,8 @@
 // src/App.jsx
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { GOOGLE_CLIENT_ID, APPS_SCRIPT_URL, DISTRICT_LOGO, isBubbleStudent } from './config.js';
+import { GOOGLE_CLIENT_ID, DISTRICT_LOGO, isBubbleStudent } from './config.js';
+import { fetchSbacData } from './services/api.js';
 import {
   saveUserSession,
   saveCachedStudents,
@@ -196,26 +197,10 @@ export default function App() {
     setAuthError(null);
 
     try {
-      const res = await fetch(`${APPS_SCRIPT_URL}?email=${encodeURIComponent(userEmail)}`);
-      if (!res.ok) {
-        throw new Error(`Server returned HTTP ${res.status}`);
-      }
-      const data = await res.json();
+      const data = await fetchSbacData(userEmail, fallbackName);
 
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      if (!data.user || !data.user.authorized) {
-        throw new Error('User is not authorized to access this portal.');
-      }
-
-      const verifiedUser = {
-        ...data.user,
-        name: data.user.name || fallbackName || userEmail.split('@')[0]
-      };
-
-      const fetchedStudents = Array.isArray(data.students) ? data.students : [];
+      const verifiedUser = data.user;
+      const fetchedStudents = data.students;
 
       setUser(verifiedUser);
       setStudents(fetchedStudents);
@@ -234,7 +219,14 @@ export default function App() {
 
     } catch (err) {
       console.error('Data fetch error:', err);
-      if (err.message && err.message.toLowerCase().includes('not authorized')) {
+      const isUnauthorized = err.isForbidden || (err.message && (
+        err.message.toLowerCase().includes('not authorized') ||
+        err.message.toLowerCase().includes('unauthorized') ||
+        err.message.toLowerCase().includes('forbidden') ||
+        err.message.toLowerCase().includes('invalid app token')
+      ));
+
+      if (isUnauthorized) {
         clearUserSession();
         setUser(null);
         setStudents([]);

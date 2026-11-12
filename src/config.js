@@ -1,7 +1,13 @@
 // src/config.js
 // WVUSD SBAC Longitudinal Data Portal Configuration
 
-export const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwDA3tDZLK1zoQNRyGETWCoR7XI3NVPZw51R9JLu5xlrcEEixIYx6ykAFz3N0DpAo7M/exec";
+export const APPS_SCRIPT_URL =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_APPS_SCRIPT_URL) ||
+  "https://script.google.com/macros/s/AKfycbwndmNB9Eo-xjDYWhnmpRiwEXRFngbg-uTLIU55hwsmxUKAH4yfXfLuNsUD0I_oFLj0/exec";
+
+export const APP_SECRET_TOKEN =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_SECRET_TOKEN) ||
+  "";
 export const GOOGLE_CLIENT_ID = "243489966839-kcopbaj692oat1p2hoq5lrcddq9n4k17.apps.googleusercontent.com";
 
 export const ALLOWED_DOMAINS = ["wvusd.org", "sub.wvusd.org"];
