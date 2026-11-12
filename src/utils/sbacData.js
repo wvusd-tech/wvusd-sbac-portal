@@ -514,6 +514,10 @@ export function generateNotebookLMPrompt(student, workflowType = 'IEP') {
     `  - Grade ${h.testGrade} (${h.dateTaken || h.year}): Scaled Score ${h.scaledScore}, Level ${h.performanceLevel}`
   ).join("\n") || "  - No historical Math records";
 
+  const placementHist = (student.mathPlacements || []).map(p =>
+    `  - ${p.testLabel || p.testKey} (${p.dateTaken || p.year || 'N/A'}): Score ${p.rawScore}${p.percent !== null ? ` (${p.percent}%)` : ''}${p.recommendedClass ? ` -> Recommended: ${p.recommendedClass}` : ''}`
+  ).join("\n") || "  - No Math Placement test records";
+
   const elaDelta = student.elaDelta !== null ? `${student.elaDelta > 0 ? '+' : ''}${student.elaDelta} pts` : 'N/A';
   const mathDelta = student.mathDelta !== null ? `${student.mathDelta > 0 ? '+' : ''}${student.mathDelta} pts` : 'N/A';
 
@@ -535,8 +539,11 @@ ${elaHist}
 Math History:
 ${mathHist}
 
+District Math Placement History:
+${placementHist}
+
 **Instructions for NotebookLM:**
-Act as an expert Special Education Specialist and School Psychologist for Walnut Valley Unified. Based on this student's longitudinal SBAC scale score trajectory, growth deltas, and demographic profile:
+Act as an expert Special Education Specialist and School Psychologist for Walnut Valley Unified. Based on this student's longitudinal SBAC scale score trajectory, math placement history, growth deltas, and demographic profile:
 1. Identify the student's primary academic risk factors and relative strengths across ELA and Mathematics claims.
 2. Recommend 3 specific, measurable SMART IEP/504 academic goals targeting scale score recovery.
 3. Suggest 4 evidence-based classroom and testing accommodations (e.g., text-to-speech, chunking, graphic organizers, visual aids) appropriate for CAASPP testing and daily instruction.
@@ -561,6 +568,9 @@ ${elaHist}
 Math:
 ${mathHist}
 
+District Math Placement History:
+${placementHist}
+
 **Instructions for NotebookLM:**
 Act as a Walnut Valley Unified Multi-Tiered System of Support (MTSS) Intervention Specialist. Formulate an individualized SST Action Plan:
 1. Determine whether the student qualifies for Tier 2 Strategic Intervention or Tier 3 Intensive Academic Support.
@@ -574,6 +584,8 @@ Act as a Walnut Valley Unified Multi-Tiered System of Support (MTSS) Interventio
 Student: ${student.name} (Grade ${student.grade}) | School: ${student.school}
 Current SBAC Tier: ELA Level ${student.latestEla?.performanceLevel || 'N/A'} | Math Level ${student.latestMath?.performanceLevel || 'N/A'}
 Growth Velocity: ELA (${elaDelta}), Math (${mathDelta})
+District Math Placement:
+${placementHist}
 Demographics: ${flagStr}
 
 **Instructions for NotebookLM:**

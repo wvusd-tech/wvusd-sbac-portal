@@ -10,7 +10,8 @@ import {
   FileText, 
   Languages, 
   Home, 
-  ExternalLink
+  ExternalLink,
+  Compass
 } from 'lucide-react';
 
 export default function StudentCard({ student, subjectFocus = 'ALL', onClick }) {
@@ -186,6 +187,31 @@ export default function StudentCard({ student, subjectFocus = 'ALL', onClick }) 
               {getLevelBadge(latestMath?.performanceLevel)}
             </div>
             {getDeltaPill(mathDelta, 'YoY')}
+          </div>
+        )}
+
+        {/* Latest Math Placement Badge if Available */}
+        {student.latestMathPlacement && (
+          <div className="flex items-center justify-between text-xs bg-indigo-50/70 border border-indigo-100 rounded-lg px-2 py-1 mt-1">
+            <div className="flex items-center gap-1.5 truncate">
+              <Compass className="w-3 h-3 text-indigo-600 shrink-0" />
+              <span className="text-[10px] font-bold text-indigo-900 truncate">
+                {student.latestMathPlacement.testLabel?.replace(' Placement', '') || 'Math Plmt'}:
+              </span>
+              <span className="font-mono font-bold text-[11px] text-indigo-800">
+                {student.latestMathPlacement.rawScore}
+              </span>
+              {student.latestMathPlacement.percent !== null && (
+                <span className="text-[10px] text-indigo-600 font-mono">
+                  ({student.latestMathPlacement.percent}%)
+                </span>
+              )}
+            </div>
+            {student.latestMathPlacement.recommendedClass && (
+              <span className="text-[10px] font-semibold text-indigo-700 bg-white/80 px-1.5 py-0.5 rounded border border-indigo-200/60 truncate max-w-[110px]" title={student.latestMathPlacement.recommendedClass}>
+                {student.latestMathPlacement.recommendedClass}
+              </span>
+            )}
           </div>
         )}
 

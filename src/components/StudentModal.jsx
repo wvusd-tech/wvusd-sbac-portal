@@ -16,7 +16,9 @@ import {
   ShieldAlert, 
   FileText,
   Languages, 
-  Home 
+  Home,
+  Compass,
+  CheckCircle2
 } from 'lucide-react';
 
 export default function StudentModal({ student, onClose }) {
@@ -28,6 +30,7 @@ export default function StudentModal({ student, onClose }) {
   // Sort histories chronologically
   const sortedEla = [...(student.elaHistory || [])].sort((a, b) => (a.year || 0) - (b.year || 0));
   const sortedMath = [...(student.mathHistory || [])].sort((a, b) => (a.year || 0) - (b.year || 0));
+  const sortedPlacements = [...(student.mathPlacements || [])].sort((a, b) => (a.year || 0) - (b.year || 0));
 
   const currentPrompt = activeTab === 'iep' 
     ? generateNotebookLMPrompt(student, 'IEP') 
@@ -336,6 +339,74 @@ export default function StudentModal({ student, onClose }) {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* District Math Placement Progression */}
+              <div className="mt-6 bg-slate-50/80 rounded-xl p-4 border border-indigo-100">
+                <div className="flex items-center justify-between pb-3 border-b border-indigo-100/80 mb-3">
+                  <div className="flex items-center gap-2">
+                    <Compass className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-sm font-bold text-slate-800">
+                      District Math Placement Assessments
+                    </h3>
+                  </div>
+                  <span className="text-xs text-indigo-600 font-mono font-semibold">
+                    {sortedPlacements.length} {sortedPlacements.length === 1 ? 'Record' : 'Records'}
+                  </span>
+                </div>
+
+                {sortedPlacements.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-400 italic bg-white rounded-lg border border-slate-200/60">
+                    No middle or high school math placement test records on file for this student ID.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                    {sortedPlacements.map((p, idx) => (
+                      <div 
+                        key={idx} 
+                        className="bg-white rounded-xl p-3.5 border border-indigo-200/70 shadow-xs flex flex-col justify-between"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                            <span className="font-semibold text-slate-700">{p.testLabel || p.testKey}</span>
+                            <span className="font-mono text-[10px] text-slate-400">{p.year || p.dateTaken || '—'}</span>
+                          </div>
+
+                          <div className="flex items-baseline gap-2 mt-2">
+                            <span className="text-xl font-extrabold text-slate-900 font-mono tracking-tight">
+                              {p.rawScore}
+                            </span>
+                            {p.percent !== null && (
+                              <span className={`text-xs font-bold font-mono px-1.5 py-0.5 rounded ${
+                                p.percent >= 80 
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                  : p.percent >= 65 
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200' 
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}>
+                                {p.percent}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 pt-2.5 border-t border-slate-100">
+                          <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider block mb-0.5">
+                            Recommended Course:
+                          </span>
+                          {p.recommendedClass ? (
+                            <div className="inline-flex items-center gap-1 text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200/70">
+                              <CheckCircle2 className="w-3 h-3 text-indigo-600 shrink-0" />
+                              <span className="truncate">{p.recommendedClass}</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400 italic">Score recorded (No recommendation)</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Longitudinal Insights Callout */}
