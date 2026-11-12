@@ -9,7 +9,7 @@
  *   - Cell Q1: Comma-separated SuperAdmin Emails
  * Tab 3: "Users" or "User" (Cols A-D: Name, Email, Job Title, Site)
  * Tabs 4-7: "Math_HS_Placement", "Math_Placement_6", "Math_Placement_7", "Math_Placement_8"
- *   - Student ID, Timestamp, Score, Recommended Class
+ *   - Headers: ID Number (or Student ID), Timestamp, Score, Recommended Class
  *
  * SCRIPT PROPERTIES:
  * - APP_SECRET_TOKEN: Shared secret token verified via verifyAppToken_
@@ -91,7 +91,8 @@ function handleRequest(e) {
 
     for (var i = 1; i < rosterData.length; i++) {
       var r = rosterData[i];
-      var studentId = String(r[0]).trim();
+      var rawStudentId = r[0];
+      var studentId = extractCleanStudentId_(rawStudentId);
       if (!studentId) continue;
 
       var grade = parseInt(r[2], 10);
@@ -138,7 +139,7 @@ function handleRequest(e) {
       var sbacData = sbacSheet.getDataRange().getValues();
       for (var j = 1; j < sbacData.length; j++) {
         var s = sbacData[j];
-        var sId = String(s[0]).trim();
+        var sId = extractCleanStudentId_(s[0]);
         
         // Strictly attach scores only to students within the user's authorized server-side scope
         var student = studentsMap[sId];
@@ -180,23 +181,44 @@ function handleRequest(e) {
     ];
 
     placementTabs.forEach(function(tab) {
-      var sheet = ss.getSheetByName(tab.name);
+      // Robust sheet resolution: case-insensitive & trimmed to guard against accidental trailing spaces in tab names
+      var sheet = null;
+      var allSheets = ss.getSheets();
+      for (var s = 0; s < allSheets.length; s++) {
+        var cleanTabName = allSheets[s].getName().trim().toLowerCase();
+        if (cleanTabName === tab.name.toLowerCase() || cleanTabName === tab.name.replace(/_/g, ' ').toLowerCase()) {
+          sheet = allSheets[s];
+          break;
+        }
+      }
       if (!sheet) return;
 
       var pData = sheet.getDataRange().getValues();
       if (pData.length < 2) return;
 
+      // Identify header indexes with flexible matching (matches "ID Number", "Student ID", "ID", etc.)
       var headers = pData[0].map(function(h) { return String(h).trim().toLowerCase(); });
-      var idIdx = headers.findIndex(function(h) { return h === "student id" || h === "id" || h === "studentid"; });
-      var timeIdx = headers.findIndex(function(h) { return h.indexOf("time") !== -1 || h.indexOf("date") !== -1; });
-      var scoreIdx = headers.findIndex(function(h) { return h.indexOf("score") !== -1; });
-      var recIdx = headers.findIndex(function(h) { return h.indexOf("recommend") !== -1 || h.indexOf("class") !== -1 || h.indexOf("course") !== -1; });
+      var idIdx = headers.findIndex(function(h) { 
+        return h === "id number" || h === "student id" || h === "id" || h === "studentid" || 
+               h === "student #" || h === "id #" || h.indexOf("id") !== -1; 
+      });
+      var timeIdx = headers.findIndex(function(h) { 
+        return h.indexOf("time") !== -1 || h.indexOf("date") !== -1; 
+      });
+      var scoreIdx = headers.findIndex(function(h) { 
+        return h.indexOf("score") !== -1; 
+      });
+      var recIdx = headers.findIndex(function(h) { 
+        return h.indexOf("recommend") !== -1 || h.indexOf("class") !== -1 || h.indexOf("course") !== -1; 
+      });
 
       if (idIdx === -1 || scoreIdx === -1) return;
 
       for (var p = 1; p < pData.length; p++) {
         var row = pData[p];
-        var pId = String(row[idIdx] || "").trim();
+        var rawId = row[idIdx];
+        var pId = extractCleanStudentId_(rawId);
+
         // Skip rows without an ID or students not in current authorized roster
         if (!pId || !studentsMap[pId]) continue;
 
@@ -277,6 +299,18 @@ function verifyAppToken_(payload, e) {
   return providedToken === String(expectedToken).trim();
 }
 
+/**
+ * Normalizes Student ID to cleanly match across all tabs:
+ * Strips leading '#', trailing '.0', spaces, and leading zeros.
+ */
+function extractCleanStudentId_(val) {
+  if (val === null || val === undefined) return "";
+  var s = String(val).trim();
+  if (!s || /^(?:id\s*number|student\s*id|id|studentid|stu\s*id)$/i.test(s)) return "";
+  var cleaned = s.replace(/^#/, "").replace(/\.0+$/, "").replace(/^0+/, "").trim();
+  return cleaned || (s === "0" ? "0" : "");
+}
+
 function parseFractionScore(val) {
   if (val === null || val === undefined || val === "") {
     return { display: "N/A", percent: null, numerator: null, denominator: null };
@@ -307,7 +341,6 @@ function parseFractionScore(val) {
 }
 
 function getUserAccess(email, rosterData, usersSheet) {
-  // 1. Check SuperAdmin in Roster!Q1 (Col Q)
   var superAdminRaw = "";
   if (rosterData.length > 0 && rosterData[0].length > 16) {
     superAdminRaw += String(rosterData[0][16] || "") + ",";
@@ -320,7 +353,6 @@ function getUserAccess(email, rosterData, usersSheet) {
     return { email: email, name: "Super Admin", role: "SuperAdmin", school: "ALL", authorized: true };
   }
 
-  // 2. Check Site Admins / Learning Specialists in Roster!O:P (Col O = Site, Col P = Admin Emails)
   var adminSites = [];
   for (var i = 0; i < rosterData.length; i++) {
     if (rosterData[i].length > 15) {
@@ -344,7 +376,6 @@ function getUserAccess(email, rosterData, usersSheet) {
     };
   }
 
-  // 3. Check Roster Column F for Teachers / Counselors
   for (var j = 1; j < rosterData.length; j++) {
     var rEmail = String(rosterData[j][5] || "").trim().toLowerCase();
     if (rEmail === email) {
@@ -361,7 +392,6 @@ function getUserAccess(email, rosterData, usersSheet) {
     }
   }
 
-  // 4. Check "Users" / "User" Tab (A: Name | B: Email | C: Job Title | D: Site)
   if (usersSheet) {
     var uData = usersSheet.getDataRange().getValues();
     for (var k = 1; k < uData.length; k++) {
@@ -389,12 +419,10 @@ function getUserAccess(email, rosterData, usersSheet) {
 function canViewStudent(userAccess, schoolName, staffEmail, gradeBand, allowedSites) {
   if (userAccess.role === "SuperAdmin" || userAccess.school === "ALL") return true;
   
-  // Elementary Teachers strictly see their own classroom roster
   if (userAccess.role === "ElementaryTeacher") {
     return staffEmail === userAccess.email;
   }
 
-  // Site Admins, Counselors, and Teachers on "Users" tab strictly see their authorized site(s)
   var siteTarget = schoolName.toLowerCase();
   for (var i = 0; i < allowedSites.length; i++) {
     var site = allowedSites[i];
