@@ -3,7 +3,7 @@
 
 export const APPS_SCRIPT_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_APPS_SCRIPT_URL) ||
-  "https://script.google.com/macros/s/AKfycbwndmNB9Eo-xjDYWhnmpRiwEXRFngbg-uTLIU55hwsmxUKAH4yfXfLuNsUD0I_oFLj0/exec";
+  "https://script.google.com/macros/s/AKfycbx57r76dAwUKS9WLtmwrSdKt1wJI3KaVwguPvWIaJaU_lXejxgXBf1Q05_MlBJpLmVU/exec";
 
 export const APP_SECRET_TOKEN =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_SECRET_TOKEN) ||
