@@ -132,42 +132,103 @@ function handleRequest(e) {
       };
     }
 
-    // 4. Parse SBAC Historical Data (Columns A - J)
+    // 4. Parse SBAC Historical Data (Dynamic header detection & resilient parsing)
     // Only query SBAC tab after token & authorization checks have passed
     var sbacSheet = ss.getSheetByName("SBAC");
     if (sbacSheet) {
       var sbacData = sbacSheet.getDataRange().getValues();
-      for (var j = 1; j < sbacData.length; j++) {
-        var s = sbacData[j];
-        var sId = extractCleanStudentId_(s[0]);
-        
-        // Strictly attach scores only to students within the user's authorized server-side scope
-        var student = studentsMap[sId];
-        if (!student) continue;
+      if (sbacData.length > 1) {
+        var sbacHeaders = sbacData[0].map(function(h) { return String(h).trim().toLowerCase(); });
 
-        var part = String(s[6]).trim();
-        var rawDate = s[7];
-        var year = extractYear(rawDate);
-        var scaledScore = Number(s[8]);
-        var perfLevel = Number(s[9]);
+        var sIdIdx = sbacHeaders.findIndex(function(h) {
+          return h === "student id" || h === "id number" || h === "id" || h === "studentid" || h === "student #" || h.indexOf("id") !== -1;
+        });
+        if (sIdIdx === -1) sIdIdx = 0;
 
-        if (!scaledScore || isNaN(scaledScore)) continue;
+        var sGradeIdx = sbacHeaders.findIndex(function(h) {
+          return h === "grade" || h.indexOf("grade") !== -1;
+        });
+        if (sGradeIdx === -1) sGradeIdx = 3;
 
-        var scoreEntry = {
-          testGrade: Number(s[3]) || null,
-          schoolCode: String(s[4]).trim(),
-          testId: String(s[5]).trim(),
-          part: part === "1" ? "ELA" : (part === "2" ? "Math" : part),
-          dateTaken: formatDate(rawDate),
-          year: year,
-          scaledScore: scaledScore,
-          performanceLevel: perfLevel
-        };
+        var sSchoolIdx = sbacHeaders.findIndex(function(h) {
+          return h === "school" || h === "schoolcode" || h.indexOf("school") !== -1 || h.indexOf("site") !== -1;
+        });
+        if (sSchoolIdx === -1) sSchoolIdx = 4;
 
-        if (part === "1") {
-          student.elaHistory.push(scoreEntry);
-        } else if (part === "2") {
-          student.mathHistory.push(scoreEntry);
+        var sTestIdIdx = sbacHeaders.findIndex(function(h) {
+          return h === "testid" || h === "test id" || h.indexOf("test") !== -1;
+        });
+        if (sTestIdIdx === -1) sTestIdIdx = 5;
+
+        var sPartIdx = sbacHeaders.findIndex(function(h) {
+          return h === "part" || h === "subject" || h.indexOf("part") !== -1;
+        });
+        if (sPartIdx === -1) sPartIdx = 6;
+
+        var sDateIdx = sbacHeaders.findIndex(function(h) {
+          return h.indexOf("date") !== -1 || h.indexOf("taken") !== -1 || h.indexOf("time") !== -1;
+        });
+        if (sDateIdx === -1) sDateIdx = 7;
+
+        var sScoreIdx = sbacHeaders.findIndex(function(h) {
+          return h === "s/s" || h === "ss" || h === "scaledscore" || h.indexOf("scale") !== -1 || (h.indexOf("score") !== -1 && h.indexOf("raw") === -1);
+        });
+        if (sScoreIdx === -1) sScoreIdx = 8;
+
+        var sPerfIdx = sbacHeaders.findIndex(function(h) {
+          return h === "performlvl" || h === "perflvl" || h.indexOf("perform") !== -1 || h.indexOf("level") !== -1;
+        });
+        if (sPerfIdx === -1) sPerfIdx = 9;
+
+        for (var j = 1; j < sbacData.length; j++) {
+          var s = sbacData[j];
+          var sId = extractCleanStudentId_(s[sIdIdx]);
+          
+          // Strictly attach scores only to students within the user's authorized server-side scope
+          var student = studentsMap[sId];
+          if (!student) continue;
+
+          var rawPart = String(s[sPartIdx] || "").trim();
+          var rawDate = s[sDateIdx];
+          var year = extractYear(rawDate);
+
+          // Clean scaled score (strip commas, spaces, currency symbols)
+          var cleanScoreStr = String(s[sScoreIdx] || "").replace(/[^0-9.]/g, "");
+          var scaledScore = cleanScoreStr ? Number(cleanScoreStr) : null;
+          if (!scaledScore || isNaN(scaledScore)) continue;
+
+          // Identify subject part resiliently (supports "1", "2", "ELA", "Math", "Mathematics", etc.)
+          var partUpper = rawPart.toUpperCase();
+          var isEla = rawPart === "1" || partUpper === "ELA" || partUpper.indexOf("ELA") !== -1 || partUpper.indexOf("READ") !== -1 || partUpper.indexOf("ENG") !== -1;
+          var isMath = rawPart === "2" || partUpper === "MATH" || partUpper.indexOf("MATH") !== -1;
+          var standardPart = isEla ? "ELA" : (isMath ? "Math" : rawPart);
+
+          var testGrade = Number(s[sGradeIdx]) || student.grade || null;
+
+          // Clean performance level (parse digits 1-4, or derive from cut score threshold)
+          var rawPerf = String(s[sPerfIdx] || "").trim();
+          var perfDigits = rawPerf.replace(/\D+/g, "");
+          var perfLevel = perfDigits ? parseInt(perfDigits, 10) : null;
+          if (isNaN(perfLevel) || perfLevel < 1 || perfLevel > 4) {
+            perfLevel = computeCutLevel_(scaledScore, testGrade, standardPart);
+          }
+
+          var scoreEntry = {
+            testGrade: testGrade,
+            schoolCode: String(s[sSchoolIdx] || "").trim(),
+            testId: String(s[sTestIdIdx] || "").trim(),
+            part: standardPart,
+            dateTaken: formatDate(rawDate),
+            year: year,
+            scaledScore: scaledScore,
+            performanceLevel: perfLevel
+          };
+
+          if (isEla) {
+            student.elaHistory.push(scoreEntry);
+          } else if (isMath) {
+            student.mathHistory.push(scoreEntry);
+          }
         }
       }
     }
@@ -247,8 +308,22 @@ function handleRequest(e) {
     for (var id in studentsMap) {
       var st = studentsMap[id];
       
-      st.elaHistory.sort(function(a, b) { return a.year - b.year; });
-      st.mathHistory.sort(function(a, b) { return a.year - b.year; });
+      st.elaHistory.sort(function(a, b) { 
+        var yDiff = (a.year || 0) - (b.year || 0);
+        if (yDiff !== 0) return yDiff;
+        var dateA = a.dateTaken ? new Date(a.dateTaken).getTime() : 0;
+        var dateB = b.dateTaken ? new Date(b.dateTaken).getTime() : 0;
+        return dateA - dateB;
+      });
+
+      st.mathHistory.sort(function(a, b) { 
+        var yDiff = (a.year || 0) - (b.year || 0);
+        if (yDiff !== 0) return yDiff;
+        var dateA = a.dateTaken ? new Date(a.dateTaken).getTime() : 0;
+        var dateB = b.dateTaken ? new Date(b.dateTaken).getTime() : 0;
+        return dateA - dateB;
+      });
+
       st.mathPlacements.sort(function(a, b) { return (a.year || 0) - (b.year || 0); });
 
       st.latestEla = st.elaHistory.length ? st.elaHistory[st.elaHistory.length - 1] : null;
@@ -309,6 +384,43 @@ function extractCleanStudentId_(val) {
   if (!s || /^(?:id\s*number|student\s*id|id|studentid|stu\s*id)$/i.test(s)) return "";
   var cleaned = s.replace(/^#/, "").replace(/\.0+$/, "").replace(/^0+/, "").trim();
   return cleaned || (s === "0" ? "0" : "");
+}
+
+/**
+ * Official California CAASPP SBAC Scale Score Cutoff Thresholds (Grades 3 - 11)
+ * Computes performance level (1, 2, 3, 4) if missing or non-numeric in raw sheet.
+ */
+function computeCutLevel_(score, grade, subject) {
+  if (!score) return null;
+  var cutScores = {
+    ELA: {
+      3: [2367, 2432, 2490],
+      4: [2416, 2473, 2533],
+      5: [2442, 2502, 2582],
+      6: [2457, 2531, 2618],
+      7: [2479, 2552, 2649],
+      8: [2487, 2567, 2668],
+      11: [2493, 2583, 2682]
+    },
+    Math: {
+      3: [2381, 2436, 2501],
+      4: [2411, 2485, 2549],
+      5: [2455, 2528, 2579],
+      6: [2473, 2552, 2610],
+      7: [2484, 2567, 2635],
+      8: [2504, 2586, 2653],
+      11: [2543, 2628, 2718]
+    }
+  };
+  var g = Number(grade) || 11;
+  if (g >= 9) g = 11;
+  var sub = String(subject || "").toUpperCase().indexOf("MATH") !== -1 ? "Math" : "ELA";
+  var cuts = cutScores[sub] ? cutScores[sub][g] : (cutScores.ELA[g] || cutScores.ELA[11]);
+  if (!cuts) return null;
+  if (score < cuts[0]) return 1;
+  if (score < cuts[1]) return 2;
+  if (score < cuts[2]) return 3;
+  return 4;
 }
 
 function parseFractionScore(val) {

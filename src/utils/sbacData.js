@@ -1,5 +1,22 @@
 // src/utils/sbacData.js
-import { isBubbleStudent, getDistanceToStandard } from '../config.js';
+import { isBubbleStudent, getDistanceToStandard, SBAC_CUT_SCORES } from '../config.js';
+
+/**
+ * Derives California SBAC Performance Level (1, 2, 3, 4) from scale score and grade.
+ * High School grades 9-12 default to Grade 11 CAASPP benchmark standards.
+ */
+export function getPerformanceLevel(score, grade, subject = 'ELA') {
+  if (!score) return null;
+  const numGrade = Number(grade);
+  const g = numGrade >= 9 ? 11 : (numGrade || 11);
+  const sub = String(subject).toUpperCase().includes('MATH') ? 'Math' : 'ELA';
+  const cuts = SBAC_CUT_SCORES[sub]?.[g] || SBAC_CUT_SCORES.ELA[g];
+  if (!cuts) return null;
+  if (score < cuts[0]) return 1;
+  if (score < cuts[1]) return 2;
+  if (score < cuts[2]) return 3;
+  return 4;
+}
 
 /**
  * Computes executive KPI summary metrics for an array of student objects
@@ -65,13 +82,21 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
     const ela = s.latestEla;
     const math = s.latestMath;
 
+    const effectiveElaLevel = (ela?.performanceLevel >= 1 && ela?.performanceLevel <= 4)
+      ? ela.performanceLevel
+      : (ela?.scaledScore ? getPerformanceLevel(ela.scaledScore, s.grade, 'ELA') : null);
+
+    const effectiveMathLevel = (math?.performanceLevel >= 1 && math?.performanceLevel <= 4)
+      ? math.performanceLevel
+      : (math?.scaledScore ? getPerformanceLevel(math.scaledScore, s.grade, 'Math') : null);
+
     if (ela?.scaledScore) {
       sumEla += ela.scaledScore;
       countEla++;
     }
-    if (ela?.performanceLevel >= 1 && ela?.performanceLevel <= 4) {
+    if (effectiveElaLevel) {
       elaStudentsWithScore++;
-      if (ela.performanceLevel >= 3) {
+      if (effectiveElaLevel >= 3) {
         elaMetExceededCount++;
       }
     }
@@ -80,9 +105,9 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
       sumMath += math.scaledScore;
       countMath++;
     }
-    if (math?.performanceLevel >= 1 && math?.performanceLevel <= 4) {
+    if (effectiveMathLevel) {
       mathStudentsWithScore++;
-      if (math.performanceLevel >= 3) {
+      if (effectiveMathLevel >= 3) {
         mathMetExceededCount++;
       }
     }
@@ -101,22 +126,22 @@ export function computeKPISummary(students = [], subjectFocus = 'ALL') {
     let isBubble = false;
 
     if (subjectFocus === 'ELA') {
-      perfLevel = ela?.performanceLevel;
+      perfLevel = effectiveElaLevel;
       if (ela?.scaledScore) {
         isBubble = isBubbleStudent(ela.scaledScore, s.grade, 'ELA');
       }
     } else if (subjectFocus === 'MATH') {
-      perfLevel = math?.performanceLevel;
+      perfLevel = effectiveMathLevel;
       if (math?.scaledScore) {
         isBubble = isBubbleStudent(math.scaledScore, s.grade, 'Math');
       }
     } else {
       // Combined / ALL: if either is met/exceeded, or average level
-      if (ela?.performanceLevel && math?.performanceLevel) {
-        const avgLvl = Math.round((ela.performanceLevel + math.performanceLevel) / 2);
+      if (effectiveElaLevel && effectiveMathLevel) {
+        const avgLvl = Math.round((effectiveElaLevel + effectiveMathLevel) / 2);
         perfLevel = avgLvl;
       } else {
-        perfLevel = ela?.performanceLevel || math?.performanceLevel;
+        perfLevel = effectiveElaLevel || effectiveMathLevel;
       }
       const bubbleEla = ela?.scaledScore ? isBubbleStudent(ela.scaledScore, s.grade, 'ELA') : false;
       const bubbleMath = math?.scaledScore ? isBubbleStudent(math.scaledScore, s.grade, 'Math') : false;
@@ -237,17 +262,25 @@ export function computeStaffBreakdown(students = [], gradeBand = 'Elementary') {
     const group = map.get(key);
     group.total++;
 
+    const effectiveElaLevel = (s.latestEla?.performanceLevel >= 1 && s.latestEla?.performanceLevel <= 4)
+      ? s.latestEla.performanceLevel
+      : (s.latestEla?.scaledScore ? getPerformanceLevel(s.latestEla.scaledScore, s.grade, 'ELA') : null);
+
+    const effectiveMathLevel = (s.latestMath?.performanceLevel >= 1 && s.latestMath?.performanceLevel <= 4)
+      ? s.latestMath.performanceLevel
+      : (s.latestMath?.scaledScore ? getPerformanceLevel(s.latestMath.scaledScore, s.grade, 'Math') : null);
+
     if (s.latestEla?.scaledScore) {
       group.elaScores.push(s.latestEla.scaledScore);
       group.testedEla++;
-      if (s.latestEla.performanceLevel >= 3) group.metExceededEla++;
-      if (s.latestEla.performanceLevel) group.levelCounts[s.latestEla.performanceLevel]++;
+      if (effectiveElaLevel >= 3) group.metExceededEla++;
+      if (effectiveElaLevel) group.levelCounts[effectiveElaLevel]++;
     }
 
     if (s.latestMath?.scaledScore) {
       group.mathScores.push(s.latestMath.scaledScore);
       group.testedMath++;
-      if (s.latestMath.performanceLevel >= 3) group.metExceededMath++;
+      if (effectiveMathLevel >= 3) group.metExceededMath++;
     }
 
     if (s.elaDelta !== null && s.elaDelta !== undefined) {
@@ -374,17 +407,25 @@ export function computeHierarchicalBreakdown(students = [], gradeBand = 'Element
       const ela = s.latestEla;
       const math = s.latestMath;
 
+      const effectiveElaLevel = (ela?.performanceLevel >= 1 && ela?.performanceLevel <= 4)
+        ? ela.performanceLevel
+        : (ela?.scaledScore ? getPerformanceLevel(ela.scaledScore, s.grade, 'ELA') : null);
+
+      const effectiveMathLevel = (math?.performanceLevel >= 1 && math?.performanceLevel <= 4)
+        ? math.performanceLevel
+        : (math?.scaledScore ? getPerformanceLevel(math.scaledScore, s.grade, 'Math') : null);
+
       if (ela?.scaledScore) {
         testedEla++;
-        if (ela.performanceLevel >= 3) metEla++;
+        if (effectiveElaLevel >= 3) metEla++;
       }
       if (math?.scaledScore) {
         testedMath++;
-        if (math.performanceLevel >= 3) metMath++;
+        if (effectiveMathLevel >= 3) metMath++;
       }
 
       // Tier 3 Needs: Level 1 (Standard Not Met / Intensive Need)
-      const isLevel1 = (ela && ela.performanceLevel === 1) || (math && math.performanceLevel === 1);
+      const isLevel1 = (effectiveElaLevel === 1) || (effectiveMathLevel === 1);
       if (isLevel1) tier3NeedsCount++;
 
       const bEla = ela?.scaledScore ? isBubbleStudent(ela.scaledScore, s.grade, 'ELA') : false;
