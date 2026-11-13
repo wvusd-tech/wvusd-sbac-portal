@@ -27,8 +27,22 @@ export default function StudentCard({ student, subjectFocus = 'ALL', onClick }) 
     latestEla, 
     latestMath, 
     elaDelta, 
-    mathDelta 
+    mathDelta,
+    elaHistory = [],
+    mathHistory = []
   } = student;
+
+  const sortedElaHistory = [...(elaHistory || [])].sort((a, b) => {
+    const yDiff = (a.year || 0) - (b.year || 0);
+    if (yDiff !== 0) return yDiff;
+    return (a.dateTaken ? new Date(a.dateTaken).getTime() : 0) - (b.dateTaken ? new Date(b.dateTaken).getTime() : 0);
+  });
+
+  const sortedMathHistory = [...(mathHistory || [])].sort((a, b) => {
+    const yDiff = (a.year || 0) - (b.year || 0);
+    if (yDiff !== 0) return yDiff;
+    return (a.dateTaken ? new Date(a.dateTaken).getTime() : 0) - (b.dateTaken ? new Date(b.dateTaken).getTime() : 0);
+  });
 
   const isElaBubble = latestEla?.scaledScore ? isBubbleStudent(latestEla.scaledScore, grade, 'ELA') : false;
   const isMathBubble = latestMath?.scaledScore ? isBubbleStudent(latestMath.scaledScore, grade, 'Math') : false;
@@ -161,32 +175,96 @@ export default function StudentCard({ student, subjectFocus = 'ALL', onClick }) 
       </div>
 
       {/* Scores & Deltas Bottom Section */}
-      <div className="pt-2.5 border-t border-slate-100 space-y-2">
-        {/* ELA Row */}
+      <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
+        {/* ELA Row & Historical Progression */}
         {(subjectFocus === 'ALL' || subjectFocus === 'ELA') && (
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-slate-700 w-9">ELA:</span>
-              <span className="font-mono font-bold text-slate-900">
-                {latestEla?.scaledScore ? latestEla.scaledScore : '—'}
-              </span>
-              {getLevelBadge(latestEla?.performanceLevel)}
+          <div>
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-slate-700 w-9">ELA:</span>
+                <span className="font-mono font-bold text-slate-900">
+                  {latestEla?.scaledScore ? latestEla.scaledScore : '—'}
+                </span>
+                {getLevelBadge(latestEla?.performanceLevel)}
+              </div>
+              {getDeltaPill(elaDelta, 'YoY')}
             </div>
-            {getDeltaPill(elaDelta, 'YoY')}
+
+            {/* ELA Longitudinal Multi-Year History Chips */}
+            {sortedElaHistory.length > 0 && (
+              <div className="flex items-center gap-1 overflow-x-auto pt-1 pb-0.5 no-scrollbar">
+                {sortedElaHistory.map((rec, idx) => {
+                  const isLatest = idx === sortedElaHistory.length - 1;
+                  const conf = PERFORMANCE_LEVELS[rec.performanceLevel];
+                  const yrLabel = rec.year ? `'${String(rec.year).slice(-2)}` : (rec.dateTaken ? `'${rec.dateTaken.split('/').pop().slice(-2)}` : '—');
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono shrink-0 transition-all ${
+                        isLatest 
+                          ? (conf ? `${conf.badgeClass} ring-1 ring-current font-bold shadow-2xs` : 'bg-blue-50 text-blue-800 border-blue-200 font-bold')
+                          : 'bg-slate-50 text-slate-600 border-slate-200'
+                      }`}
+                      title={`Grade ${rec.testGrade || '—'} (${rec.dateTaken || rec.year}): Scale Score ${rec.scaledScore}${conf ? ` · ${conf.label}` : ''}${isLatest ? ' (Latest)' : ''}`}
+                    >
+                      <span className="font-sans font-bold text-[9px] text-slate-400">{yrLabel}</span>
+                      <span className="font-bold">{rec.scaledScore}</span>
+                      {rec.performanceLevel && (
+                        <span className={`text-[9px] px-1 py-0.2 rounded font-extrabold ${conf ? conf.barColor + ' text-white' : 'bg-slate-400 text-white'}`}>
+                          L{rec.performanceLevel}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Math Row */}
+        {/* Math Row & Historical Progression */}
         {(subjectFocus === 'ALL' || subjectFocus === 'MATH') && (
-          <div className="flex items-center justify-between text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-slate-700 w-9">Math:</span>
-              <span className="font-mono font-bold text-slate-900">
-                {latestMath?.scaledScore ? latestMath.scaledScore : '—'}
-              </span>
-              {getLevelBadge(latestMath?.performanceLevel)}
+          <div>
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-slate-700 w-9">Math:</span>
+                <span className="font-mono font-bold text-slate-900">
+                  {latestMath?.scaledScore ? latestMath.scaledScore : '—'}
+                </span>
+                {getLevelBadge(latestMath?.performanceLevel)}
+              </div>
+              {getDeltaPill(mathDelta, 'YoY')}
             </div>
-            {getDeltaPill(mathDelta, 'YoY')}
+
+            {/* Math Longitudinal Multi-Year History Chips */}
+            {sortedMathHistory.length > 0 && (
+              <div className="flex items-center gap-1 overflow-x-auto pt-1 pb-0.5 no-scrollbar">
+                {sortedMathHistory.map((rec, idx) => {
+                  const isLatest = idx === sortedMathHistory.length - 1;
+                  const conf = PERFORMANCE_LEVELS[rec.performanceLevel];
+                  const yrLabel = rec.year ? `'${String(rec.year).slice(-2)}` : (rec.dateTaken ? `'${rec.dateTaken.split('/').pop().slice(-2)}` : '—');
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-mono shrink-0 transition-all ${
+                        isLatest 
+                          ? (conf ? `${conf.badgeClass} ring-1 ring-current font-bold shadow-2xs` : 'bg-emerald-50 text-emerald-800 border-emerald-200 font-bold')
+                          : 'bg-slate-50 text-slate-600 border-slate-200'
+                      }`}
+                      title={`Grade ${rec.testGrade || '—'} (${rec.dateTaken || rec.year}): Scale Score ${rec.scaledScore}${conf ? ` · ${conf.label}` : ''}${isLatest ? ' (Latest)' : ''}`}
+                    >
+                      <span className="font-sans font-bold text-[9px] text-slate-400">{yrLabel}</span>
+                      <span className="font-bold">{rec.scaledScore}</span>
+                      {rec.performanceLevel && (
+                        <span className={`text-[9px] px-1 py-0.2 rounded font-extrabold ${conf ? conf.barColor + ' text-white' : 'bg-slate-400 text-white'}`}>
+                          L{rec.performanceLevel}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
