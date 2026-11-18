@@ -470,10 +470,20 @@ function getTeacherEmailColIdx_(rosterData) {
   if (!Array.isArray(rosterData) || rosterData.length === 0) return 5;
   var headers = rosterData[0].map(function(h) { return String(h).toLowerCase().trim(); });
   var idx = headers.findIndex(function(h) {
-    return h.indexOf("teacher email") !== -1 || h.indexOf("staff email") !== -1 || h === "email";
+    return (
+      h === "email1" ||
+      h.indexOf("email1") !== -1 ||
+      h === "email" ||
+      h.indexOf("teacher email") !== -1 ||
+      h.indexOf("staff email") !== -1 ||
+      h.indexOf("counselor email") !== -1
+    );
   });
   if (idx !== -1) return idx;
-  // If Col L (index 11) has an email, bind to Col L (11), otherwise default to Col F (5)
+  // Fallback: check Col F (5) or Col L (11) for an email address
+  if (rosterData.length > 1 && String(rosterData[1][5] || "").indexOf("@") !== -1) {
+    return 5;
+  }
   if (rosterData.length > 1 && String(rosterData[1][11] || "").indexOf("@") !== -1) {
     return 11;
   }
