@@ -30,9 +30,8 @@ export default function LoginView({ onLoginSuccess, isLoading, authError }) {
       setDomainBlocked(false);
       setBlockedEmail('');
       setLocalError(null);
-      // Persist raw credential and initial user session
-      saveUserSession({ email, name: decoded.name, authorized: true }, credentialResponse.credential);
 
+      // Do NOT set authorized: true before server verification
       onLoginSuccess(email, decoded.name);
     } catch {
       setLocalError('Failed to decode Google Sign-In credential. Please try again.');

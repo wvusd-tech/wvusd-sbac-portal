@@ -60,15 +60,20 @@ function handleRequest(e) {
     }
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var rosterSheet = ss.getSheetByName("Roster");
+    var ROSTER_TAB_NAMES = ["SBAC Roster", "Roster", "Roster Tab"];
+    var rosterSheet = null;
+    for (var t = 0; t < ROSTER_TAB_NAMES.length; t++) {
+      rosterSheet = ss.getSheetByName(ROSTER_TAB_NAMES[t]);
+      if (rosterSheet) break;
+    }
     var usersSheet = ss.getSheetByName("Users") || ss.getSheetByName("User");
 
     if (!rosterSheet) {
       return jsonResponse({
         status: "Error",
         success: false,
-        message: "Missing required 'Roster' tab.",
-        error: "Missing required 'Roster' tab."
+        message: "Missing required 'SBAC Roster' or 'Roster' tab.",
+        error: "Missing required 'SBAC Roster' or 'Roster' tab."
       }, 500);
     }
 
@@ -85,9 +90,10 @@ function handleRequest(e) {
       }, 403);
     }
 
-    // 3. Parse Roster Data (Columns A - J) with Server-Side Scope Filtering
+    // 3. Parse Roster Data with Server-Side Scope Filtering
     var studentsMap = {};
     var allowedSiteList = (userAccess.school || "").toLowerCase().split(",").map(function(s) { return s.trim(); });
+    var emailColIdx = getTeacherEmailColIdx_(rosterData);
 
     for (var i = 1; i < rosterData.length; i++) {
       var r = rosterData[i];
@@ -100,8 +106,8 @@ function handleRequest(e) {
       if (isNaN(grade) || grade < 1) continue;
 
       var schoolName = String(r[3]).trim();
-      var staffName = String(r[4]).trim(); // Teacher (3-5) or Counselor (6-12)
-      var staffEmail = String(r[5]).trim().toLowerCase();
+      var staffName = String(r[4] || (r.length > 10 ? r[10] : "")).trim(); // Teacher (3-5) or Counselor (6-12)
+      var staffEmail = parseEmailList_(r[emailColIdx]).join(",");
 
       // Determine Grade Band
       var gradeBand = grade <= 5 ? "Elementary" : (grade <= 8 ? "Middle" : "High");
@@ -452,6 +458,28 @@ function parseFractionScore(val) {
   return { display: str, percent: null, numerator: null, denominator: null };
 }
 
+function parseEmailList_(rawCell) {
+  if (!rawCell) return [];
+  return String(rawCell)
+    .split(/[,;\n]+/)
+    .map(function(e) { return e.toLowerCase().trim(); })
+    .filter(function(e) { return e.indexOf("@") !== -1; });
+}
+
+function getTeacherEmailColIdx_(rosterData) {
+  if (!Array.isArray(rosterData) || rosterData.length === 0) return 5;
+  var headers = rosterData[0].map(function(h) { return String(h).toLowerCase().trim(); });
+  var idx = headers.findIndex(function(h) {
+    return h.indexOf("teacher email") !== -1 || h.indexOf("staff email") !== -1 || h === "email";
+  });
+  if (idx !== -1) return idx;
+  // If Col L (index 11) has an email, bind to Col L (11), otherwise default to Col F (5)
+  if (rosterData.length > 1 && String(rosterData[1][11] || "").indexOf("@") !== -1) {
+    return 11;
+  }
+  return 5;
+}
+
 function getUserAccess(email, rosterData, usersSheet) {
   var superAdminRaw = "";
   if (rosterData.length > 0 && rosterData[0].length > 16) {
@@ -460,7 +488,7 @@ function getUserAccess(email, rosterData, usersSheet) {
   if (rosterData.length > 1 && rosterData[1].length > 16) {
     superAdminRaw += String(rosterData[1][16] || "");
   }
-  var superAdminList = superAdminRaw.toLowerCase().split(",").map(function(s) { return s.trim(); });
+  var superAdminList = parseEmailList_(superAdminRaw);
   if (superAdminList.indexOf(email) !== -1 || email === "kwendland@wvusd.org") {
     return { email: email, name: "Super Admin", role: "SuperAdmin", school: "ALL", authorized: true };
   }
@@ -471,7 +499,7 @@ function getUserAccess(email, rosterData, usersSheet) {
       var siteName = String(rosterData[i][14] || "").trim();
       var adminEmailsRaw = String(rosterData[i][15] || "").toLowerCase();
       if (siteName && adminEmailsRaw) {
-        var emailArray = adminEmailsRaw.split(",").map(function(s) { return s.trim(); });
+        var emailArray = parseEmailList_(adminEmailsRaw);
         if (emailArray.indexOf(email) !== -1) {
           adminSites.push(siteName);
         }
@@ -488,12 +516,13 @@ function getUserAccess(email, rosterData, usersSheet) {
     };
   }
 
+  var emailColIdx = getTeacherEmailColIdx_(rosterData);
   for (var j = 1; j < rosterData.length; j++) {
-    var rEmail = String(rosterData[j][5] || "").trim().toLowerCase();
-    if (rEmail === email) {
+    var cellEmails = parseEmailList_(rosterData[j][emailColIdx]);
+    if (cellEmails.indexOf(email) !== -1) {
       var grade = parseInt(rosterData[j][2], 10);
       var school = String(rosterData[j][3] || "").trim();
-      var staffName = String(rosterData[j][4] || "").trim();
+      var staffName = String(rosterData[j][4] || (rosterData[j].length > 10 ? rosterData[j][10] : "")).trim();
       return {
         email: email,
         name: staffName,
@@ -532,13 +561,14 @@ function canViewStudent(userAccess, schoolName, staffEmail, gradeBand, allowedSi
   if (userAccess.role === "SuperAdmin" || userAccess.school === "ALL") return true;
   
   if (userAccess.role === "ElementaryTeacher") {
-    return staffEmail === userAccess.email;
+    var staffEmails = parseEmailList_(staffEmail);
+    return staffEmails.indexOf(userAccess.email) !== -1;
   }
 
   var siteTarget = schoolName.toLowerCase();
   for (var i = 0; i < allowedSites.length; i++) {
     var site = allowedSites[i];
-    if (site && siteTarget.indexOf(site) !== -1) {
+    if (site && (siteTarget.indexOf(site) !== -1 || site.indexOf(siteTarget) !== -1)) {
       return true;
     }
   }
