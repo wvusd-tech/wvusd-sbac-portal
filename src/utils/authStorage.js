@@ -60,40 +60,6 @@ export function saveUserSession(user, rawCredential = null) {
 }
 
 /**
- * Persists cached students in storage with quota safety
- */
-export function saveCachedStudents(students) {
-  if (!Array.isArray(students) || students.length === 0) return;
-  try {
-    const serialized = JSON.stringify(students);
-    try {
-      sessionStorage.setItem(STORAGE_KEYS.STUDENTS, serialized);
-    } catch {
-      // Session storage quota might be hit
-    }
-  } catch (err) {
-    console.warn('Failed to serialize cached students:', err);
-  }
-}
-
-/**
- * Retrieves cached students from storage
- */
-export function getCachedStudents() {
-  try {
-    const fromSession = sessionStorage.getItem(STORAGE_KEYS.STUDENTS);
-    if (fromSession) {
-      const parsed = JSON.parse(fromSession);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {
-    // ignore
-  }
-
-  return [];
-}
-
-/**
  * Completely clears all stored session credentials, tokens, and cached datasets
  */
 export function clearUserSession() {
@@ -139,45 +105,14 @@ export function getStoredSession() {
   };
 
   try {
-    const sessionUser = checkUserJson(sessionStorage.getItem(STORAGE_KEYS.USER));
-    if (sessionUser) return sessionUser;
-  } catch (err) {
-    console.warn('Error reading sessionStorage user:', err);
-  }
-
-  // Check for raw Google ID token (JWT) in active sessionStorage
-  const checkCredentialToken = (token) => {
-    if (!token) return null;
-    try {
-      const decoded = jwtDecode(token);
-      if (!decoded || !decoded.email) return null;
-
-      // Check token expiration (exp is in seconds)
-      if (decoded.exp && (decoded.exp * 1000) <= Date.now()) {
-        console.warn('Stored Google credential has expired');
-        return null;
-      }
-
-      const email = decoded.email.toLowerCase().trim();
-      if (!isValidWvusdEmail(email)) {
-        console.warn('Stored Google credential domain is not authorized');
-        return null;
-      }
-
-      return {
-        email,
-        name: decoded.name || email.split('@')[0],
-        credential: token,
-        source: 'sessionStorage_credential'
-      };
-    } catch {
-      return null;
-    }
-  };
-
-  try {
     const credSession = checkCredentialToken(sessionStorage.getItem(STORAGE_KEYS.CREDENTIAL));
-    if (credSession) return credSession;
+    if (credSession) {
+      const sessionUser = checkUserJson(sessionStorage.getItem(STORAGE_KEYS.USER));
+      return {
+        ...credSession,
+        user: sessionUser ? sessionUser.user : null
+      };
+    }
   } catch (err) {
     console.warn('Error reading sessionStorage credential:', err);
   }

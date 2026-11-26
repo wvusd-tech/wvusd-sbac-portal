@@ -15,8 +15,16 @@
  * - APP_SECRET_TOKEN: Shared secret token verified via verifyAppToken_
  */
 
+var EXPECTED_CLIENT_ID = "243489966839-kcopbaj692oat1p2hoq5lrcddq9n4k17.apps.googleusercontent.com";
+var ALLOWED_DOMAINS = ["wvusd.org", "sub.wvusd.org"];
+
 function doGet(e) {
-  return handleRequest(e);
+  return jsonResponse({
+    status: "Forbidden",
+    success: false,
+    message: "Method not allowed. Use POST with a valid Google id_token.",
+    error: "POST with id_token required."
+  }, 405);
 }
 
 function doPost(e) {
@@ -37,20 +45,31 @@ function handleRequest(e) {
       }
     }
 
-    // 1. App Token Verification (Read-side zero-trust check)
-    if (!verifyAppToken_(params, e)) {
+    // 1. Require and verify Google OAuth id_token (no ?email= bypass)
+    var idToken = (params.id_token || "").toString().trim();
+    if (!idToken) {
       return jsonResponse({
         status: "Forbidden",
         success: false,
-        message: "Invalid app token.",
-        error: "Invalid app token."
+        message: "Missing Google authentication token.",
+        error: "Unauthorized: Missing id_token."
       }, 403);
     }
 
-    var email = (params.email || params.userEmail || "").toString().trim().toLowerCase();
-    
-    // Security Check: Enforce non-empty email and @wvusd.org domain
-    if (!email || email.indexOf("@wvusd.org") === -1 || email.indexOf("@stu.wvusd.org") !== -1) {
+    var email = "";
+    try {
+      email = verifyIdToken_(idToken);
+    } catch (idErr) {
+      return jsonResponse({
+        status: "Forbidden",
+        success: false,
+        message: "Expired or invalid Google token.",
+        error: "Expired or invalid Google token."
+      }, 403);
+    }
+
+    // Security Check: Enforce non-empty email and @wvusd.org / @sub.wvusd.org domain
+    if (!isAllowedWvusdEmail_(email)) {
       return jsonResponse({
         status: "Forbidden",
         success: false,
@@ -362,22 +381,31 @@ function handleRequest(e) {
   }
 }
 
-/**
- * App Token Verification:
- * Validates provided token against APP_SECRET_TOKEN in Script Properties.
- */
-function verifyAppToken_(payload, e) {
-  var expectedToken = PropertiesService.getScriptProperties().getProperty("APP_SECRET_TOKEN");
-  if (!expectedToken) {
-    // If not configured in Script Properties, allow for backwards-compatibility or dev
-    return true;
+function isAllowedWvusdEmail_(email) {
+  if (!email) return false;
+  var clean = String(email).toLowerCase().trim();
+  var parts = clean.split("@");
+  if (parts.length !== 2) return false;
+  if (parts[1] === "stu.wvusd.org") return false;
+  return ALLOWED_DOMAINS.indexOf(parts[1]) !== -1;
+}
+
+function verifyIdToken_(idToken) {
+  var response = UrlFetchApp.fetch(
+    "https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(idToken),
+    { muteHttpExceptions: true }
+  );
+  if (response.getResponseCode() !== 200) {
+    throw new Error("Expired or invalid Google Sign-In token.");
   }
-  var providedToken = String(
-    (payload && payload.appToken) ||
-    (e && e.parameter && e.parameter.appToken) ||
-    ""
-  ).trim();
-  return providedToken === String(expectedToken).trim();
+  var data = JSON.parse(response.getContentText());
+  if (data.aud !== EXPECTED_CLIENT_ID) {
+    throw new Error("Invalid Google token audience.");
+  }
+  if (!data.email || (data.email_verified !== "true" && data.email_verified !== true)) {
+    throw new Error("Could not verify Google account email.");
+  }
+  return data.email.toLowerCase().trim();
 }
 
 /**
@@ -557,7 +585,7 @@ function getUserAccess(email, rosterData, usersSheet) {
           name: uName,
           jobTitle: uTitle,
           role: "SecondaryOrSiteTeacher",
-          school: uSite || "ALL",
+          school: uSite || "NONE",
           authorized: true
         };
       }
@@ -568,7 +596,8 @@ function getUserAccess(email, rosterData, usersSheet) {
 }
 
 function canViewStudent(userAccess, schoolName, staffEmail, gradeBand, allowedSites) {
-  if (userAccess.role === "SuperAdmin" || userAccess.school === "ALL") return true;
+  if (userAccess.role === "SuperAdmin") return true;
+  if (!userAccess.school || userAccess.school === "ALL" || userAccess.school === "NONE") return false;
   
   if (userAccess.role === "ElementaryTeacher") {
     var staffEmails = parseEmailList_(staffEmail);

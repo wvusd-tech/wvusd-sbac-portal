@@ -3,11 +3,8 @@
 
 export const APPS_SCRIPT_URL =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_APPS_SCRIPT_URL) ||
-  "https://script.google.com/macros/s/AKfycbyVA0Ws0_Sg71VQwBUgmvdWFvbuNJSeiZKAVP6HMwcPnYKvc4hb2dsSQ3oosRu03fOt/exec";
+  "https://script.google.com/macros/s/AKfycbw4V4dx2kKJKJLykWaO6dbGDNqxy8HcVRDar43ytSg5SYnvLrssutvx9wHWribAfmQ/exec";
 
-export const APP_SECRET_TOKEN =
-  (typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_SECRET_TOKEN) ||
-  "";
 export const GOOGLE_CLIENT_ID = "243489966839-kcopbaj692oat1p2hoq5lrcddq9n4k17.apps.googleusercontent.com";
 
 export const ALLOWED_DOMAINS = ["wvusd.org", "sub.wvusd.org"];

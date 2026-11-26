@@ -1,36 +1,35 @@
 // src/services/api.js
-// Client API for WVUSD SBAC Longitudinal Portal with token authentication & zero-trust verification
+// Client API for WVUSD SBAC Longitudinal Portal with verified Google id_token authentication
 
-import { APPS_SCRIPT_URL, APP_SECRET_TOKEN } from '../config.js';
+import { APPS_SCRIPT_URL } from '../config.js';
 
 /**
- * Fetch SBAC dashboard data for a verified WVUSD user with appToken
- * @param {string} userEmail
+ * Fetch SBAC dashboard data using a verified Google OAuth id_token via POST
+ * @param {string} idToken
  * @param {string} fallbackName
  * @returns {Promise<{ user: object, students: Array }>}
  */
-export async function fetchSbacData(userEmail, fallbackName = '') {
+export async function fetchSbacData(idToken, fallbackName = '') {
   if (!APPS_SCRIPT_URL || !APPS_SCRIPT_URL.startsWith('http')) {
     throw new Error('Apps Script Web App URL is not configured.');
   }
 
-  const cleanEmail = (userEmail || '').trim().toLowerCase();
-  if (!cleanEmail) {
-    throw new Error('Email is required to request student assessment records.');
+  if (typeof idToken !== 'string' || idToken.trim().length <= 40 || idToken.includes('@')) {
+    const error = new Error('Valid Google Sign-In id_token is required.');
+    error.status = 'Forbidden';
+    error.isForbidden = true;
+    throw error;
   }
 
-  const queryParams = new URLSearchParams({
-    email: cleanEmail,
-    appToken: APP_SECRET_TOKEN || ''
-  });
-
-  const url = `${APPS_SCRIPT_URL}?${queryParams.toString()}`;
-
-  const response = await fetch(url, {
-    method: 'GET',
+  const response = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    redirect: 'follow',
     headers: {
-      'Accept': 'application/json'
-    }
+      'Content-Type': 'text/plain;charset=utf-8'
+    },
+    body: JSON.stringify({
+      id_token: idToken.trim()
+    })
   });
 
   if (!response.ok) {
@@ -60,7 +59,7 @@ export async function fetchSbacData(userEmail, fallbackName = '') {
 
   const verifiedUser = {
     ...data.user,
-    name: data.user.name || fallbackName || cleanEmail.split('@')[0]
+    name: data.user.name || fallbackName || (data.user.email ? data.user.email.split('@')[0] : 'Staff')
   };
 
   const fetchedStudents = Array.isArray(data.students) ? data.students : [];

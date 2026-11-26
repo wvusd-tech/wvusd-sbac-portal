@@ -5,8 +5,6 @@ import { GOOGLE_CLIENT_ID, DISTRICT_LOGO, isBubbleStudent } from './config.js';
 import { fetchSbacData } from './services/api.js';
 import {
   saveUserSession,
-  saveCachedStudents,
-  getCachedStudents,
   clearUserSession,
   getStoredSession
 } from './utils/authStorage.js';
@@ -189,15 +187,15 @@ export default function App() {
     }
   }, []);
 
-  // Fetch payload from Apps Script Web App
-  const fetchDashboardData = useCallback(async (userEmail, fallbackName = '', isSilent = false) => {
+  // Fetch payload from Apps Script Web App using verified Google id_token
+  const fetchDashboardData = useCallback(async (idToken, fallbackName = '', isSilent = false) => {
     if (!isSilent) {
       setIsLoading(true);
     }
     setAuthError(null);
 
     try {
-      const data = await fetchSbacData(userEmail, fallbackName);
+      const data = await fetchSbacData(idToken, fallbackName);
 
       const verifiedUser = data.user;
       const fetchedStudents = data.students;
@@ -205,9 +203,8 @@ export default function App() {
       setUser(verifiedUser);
       setStudents(fetchedStudents);
 
-      // Persist session across storage & cookies
-      saveUserSession(verifiedUser);
-      saveCachedStudents(fetchedStudents);
+      // Persist session & credential in active sessionStorage (never cache student PII)
+      saveUserSession(verifiedUser, idToken);
 
       // Auto-configure initial view based on user role and school
       autoConfigureUserContext(verifiedUser, fetchedStudents);
@@ -239,15 +236,15 @@ export default function App() {
     }
   }, [autoConfigureUserContext, applyUrlBookmarkParams]);
 
-  // Direct load & mount: restore Google session or user token from localStorage, sessionStorage, or cookie
+  // Direct load & mount: restore Google session from active sessionStorage credential
   useEffect(() => {
     let isMounted = true;
 
     const restoreSessionOnMount = async () => {
       const stored = getStoredSession();
 
-      if (!stored || !stored.email) {
-        // No active session in memory/sessionStorage - force clean Google Sign-In prompt immediately
+      if (!stored || !stored.credential) {
+        // No active credential in sessionStorage - force clean Google Sign-In prompt immediately
         if (isMounted) {
           setIsAuthResolving(false);
           setUser(null);
@@ -257,34 +254,10 @@ export default function App() {
 
       setIsAuthResolving(true);
       try {
-
-        // Check for cached students from previous session
-        const cached = getCachedStudents();
-
-        if (cached && cached.length > 0 && stored.user) {
-          // Instant restoration from cache for fast direct bookmark access
-          if (isMounted) {
-            setUser(stored.user);
-            setStudents(cached);
-            autoConfigureUserContext(stored.user, cached);
-            applyUrlBookmarkParams(cached);
-            setIsAuthResolving(false);
-          }
-
-          // Background sync to ensure fresh assessment scores
-          try {
-            await fetchDashboardData(stored.email, stored.name, true);
-          } catch (syncErr) {
-            console.warn('Background sync using cached data:', syncErr);
-          }
-        } else {
-          // No cached students in storage (or direct link accessing uncached state):
-          // Guard rendering and fetch full data with loading spinner before rendering cards
-          if (isMounted) {
-            setIsLoading(true);
-          }
-          await fetchDashboardData(stored.email, stored.name, false);
+        if (isMounted) {
+          setIsLoading(true);
         }
+        await fetchDashboardData(stored.credential, stored.name, false);
       } catch (err) {
         console.error('Session restoration error:', err);
         if (isMounted) {
@@ -299,7 +272,7 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, [autoConfigureUserContext, applyUrlBookmarkParams, fetchDashboardData]);
+  }, [fetchDashboardData]);
 
   // Synchronize active filters to URL query string for bookmarks
   useEffect(() => {
@@ -325,40 +298,87 @@ export default function App() {
   const handleLogout = () => {
     setUser(null);
     setStudents([]);
+    setActiveModalStudent(null);
+    setLevelQuickFilter(null);
     setSelectedSite('ALL');
     setSelectedGrade('ALL');
     setSelectedStaff('ALL');
     setActiveStaffFilter(null);
     setActiveFlagFilter(null);
+    setActiveView('overview');
     clearUserSession();
     if (typeof window !== 'undefined') {
       window.history.replaceState(null, '', window.location.pathname);
     }
   };
 
-  // Fast Demo Switcher for Evaluation and Presentation
-  const handleDemoLogin = (demoEmail, demoName) => {
-    fetchDashboardData(demoEmail, demoName, false);
-  };
-
-  // Switch demo perspective dynamically when logged in as SuperAdmin
+  // Switch perspective locally on already-loaded SuperAdmin dataset (no email impersonation)
   const handleSwitchDemoRole = (roleType) => {
+    if (user?.role !== 'SuperAdmin') return;
+    const findSampleForBand = (band) => students.find(s => s && s.gradeBand === band);
+
     switch (roleType) {
       case 'SuperAdmin':
-        fetchDashboardData('kwendland@wvusd.org', 'Super Admin', false);
+        setSelectedSite('ALL');
+        setSelectedGrade('ALL');
+        setSelectedStaff('ALL');
+        setActiveStaffFilter(null);
+        setActiveView('overview');
         break;
-      case 'HighSchoolCounselor':
-        fetchDashboardData('sburns@wvusd.org', 'Burns, S', false);
+      case 'HighSchoolCounselor': {
+        const hs = findSampleForBand('High');
+        setGradeBand('High');
+        setSelectedSite(hs?.school || 'ALL');
+        setSelectedGrade('ALL');
+        setSelectedStaff('ALL');
+        setActiveStaffFilter(null);
+        setActiveView('overview');
         break;
-      case 'MiddleSchoolCounselor':
-        fetchDashboardData('jochen@wvusd.org', 'Chen, J', false);
+      }
+      case 'MiddleSchoolCounselor': {
+        const ms = findSampleForBand('Middle');
+        setGradeBand('Middle');
+        setSelectedSite(ms?.school || 'ALL');
+        setSelectedGrade('ALL');
+        setSelectedStaff('ALL');
+        setActiveStaffFilter(null);
+        setActiveView('overview');
         break;
-      case 'ElementaryTeacher':
-        fetchDashboardData('jurbaniec@wvusd.org', 'Urbaniec, Julie', false);
+      }
+      case 'ElementaryTeacher': {
+        const elem = findSampleForBand('Elementary');
+        setGradeBand('Elementary');
+        if (elem) {
+          setSelectedSite(elem.school || 'ALL');
+          setSelectedStaff(elem.staffName || 'ALL');
+          setActiveStaffFilter({
+            staffName: elem.staffName,
+            staffEmail: elem.staffEmail,
+            school: elem.school,
+            grade: elem.grade,
+            gradeBand: 'Elementary'
+          });
+        }
+        setActiveView('roster');
         break;
-      case 'SecondaryTeacher':
-        fetchDashboardData('cschultz@wvusd.org', 'Schultz, Corolar', false);
+      }
+      case 'SecondaryTeacher': {
+        const sec = findSampleForBand('High') || findSampleForBand('Middle');
+        if (sec) {
+          setGradeBand(sec.gradeBand);
+          setSelectedSite(sec.school || 'ALL');
+          setSelectedStaff(sec.staffName || 'ALL');
+          setActiveStaffFilter({
+            staffName: sec.staffName,
+            staffEmail: sec.staffEmail,
+            school: sec.school,
+            grade: sec.grade,
+            gradeBand: sec.gradeBand
+          });
+        }
+        setActiveView('roster');
         break;
+      }
       default:
         break;
     }
@@ -673,8 +693,7 @@ export default function App() {
     return (
       <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
         <LoginView
-          onLoginSuccess={(email, name) => fetchDashboardData(email, name, false)}
-          onDemoLogin={handleDemoLogin}
+          onLoginSuccess={(email, name, idToken) => fetchDashboardData(idToken, name, false)}
           isLoading={isLoading}
           authError={authError}
         />

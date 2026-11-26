@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { GoogleLogin } from '@react-oauth/google';
 import { jwtDecode } from 'jwt-decode';
 import { DISTRICT_LOGO, isValidWvusdEmail } from '../config.js';
-import { saveUserSession } from '../utils/authStorage.js';
 import {
   ShieldAlert,
   Lock,
@@ -32,7 +31,7 @@ export default function LoginView({ onLoginSuccess, isLoading, authError }) {
       setLocalError(null);
 
       // Do NOT set authorized: true before server verification
-      onLoginSuccess(email, decoded.name);
+      onLoginSuccess(email, decoded.name, credentialResponse.credential);
     } catch {
       setLocalError('Failed to decode Google Sign-In credential. Please try again.');
     }
